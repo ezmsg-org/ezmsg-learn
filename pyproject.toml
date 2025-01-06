@@ -1,0 +1,24 @@
+[project]
+name = "ezmsg-learn"
+description = "ezmsg namespace package for machine learning"
+readme = "README.md"
+authors = [
+    { name = "Chadwick Boulay", email = "chadwick.boulay@gmail.com" }
+]
+license = "MIT"
+requires-python = ">=3.12"
+dynamic = ["version"]
+dependencies = []
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/ezmsg/learn/__version__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ezmsg"]
