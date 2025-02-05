@@ -56,7 +56,7 @@ def test_incremental_decomp(sample_data, update_interval: float, method: str):
                 "time": replace(template.axes["time"], offset=msg_ix * chunk_size / fs),
             },
         )
-        res.append(ezdecomp.process(msg_in))
+        res.append(ezdecomp(msg_in))
     assert len(res) == n_chunks
     cat = AxisArray.concatenate(*res, dim="time")
 
