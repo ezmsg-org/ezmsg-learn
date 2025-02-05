@@ -89,7 +89,9 @@ def test_incremental_decomp(sample_data, update_interval: float, method: str):
             buffer = chunk
         else:
             buffer = np.concatenate((buffer, chunk), axis=0)
-        if buffer.shape[0] >= buff_size or (update_interval == 0 and chunk_ix == len(chunks) - 2):
+        if buffer.shape[0] >= buff_size or (
+            update_interval == 0 and chunk_ix == len(chunks) - 2
+        ):
             decomp.partial_fit(buffer[:buff_size])
             buffer = buffer[buff_size:]
         expected.append(decomp.transform(chunk))
