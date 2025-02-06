@@ -19,10 +19,12 @@ class IncrementalDecompSettings(ez.Settings):
     n_components: int = 2
     update_interval: float = 0.0
     method: str = "pca"
+    # TODO: More parameters needed, especially for NMF
 
 
 class IncrementalDecompState(ProcessorState):
     template: AxisArray | None = None
+    axis_groups: tuple[str, list[str], list[str]] | None = None
 
 
 class IncrementalDecompTransformer(
@@ -40,7 +42,8 @@ class IncrementalDecompTransformer(
             "decomp": IncrementalPCA(n_components=settings.n_components)
             if settings.method == "pca"
             else MiniBatchNMF(n_components=settings.n_components),
-            "wingen": WindowTransformer(
+            # Create temporary windowing processor. It is temporary because the `axis` is just a guess.
+            "windowing": WindowTransformer(
                 axis="time",
                 window_dur=settings.update_interval,
                 window_shift=settings.update_interval,
@@ -50,22 +53,26 @@ class IncrementalDecompTransformer(
             else None,
         }
 
-    def _get_axis_groups(self, message: AxisArray) -> tuple[str, list[str], list[str]]:
+    def _calculate_axis_groups(self, message: AxisArray):
         if self.settings.axis.startswith("!"):
+            # Iterate over the !axis and collapse all other axes
             iter_axis = self.settings.axis[1:]
             it_ax_ix = message.get_axis_idx(iter_axis)
             targ_axes = message.dims[:it_ax_ix] + message.dims[it_ax_ix + 1 :]
             off_targ_axes = []
         else:
+            # Do PCA on the parameterized axis
             targ_axes = [self.settings.axis]
+            # Iterate over streaming axis
             iter_axis = "win" if "win" in message.dims else "time"
             it_ax_ix = message.get_axis_idx(iter_axis)
+            # Remaining axes are to be treated independently
             off_targ_axes = [
                 _
                 for _ in (message.dims[:it_ax_ix] + message.dims[it_ax_ix + 1 :])
                 if _ != self.settings.axis
             ]
-        return iter_axis, targ_axes, off_targ_axes
+        self._state.axis_groups = iter_axis, targ_axes, off_targ_axes
 
     def _hash_message(self, message: AxisArray) -> int:
         iter_axis = (
@@ -79,11 +86,14 @@ class IncrementalDecompTransformer(
 
     def _reset_state(self, message: AxisArray) -> None:
         """Reset state"""
-        iter_axis, targ_axes, off_targ_axes = self._get_axis_groups(message)
+        self._calculate_axis_groups(message)
+        iter_axis, targ_axes, off_targ_axes = self._state.axis_groups
 
-        # Reset wingen with correct iter_axis
+        # Reset windowing with correct iter_axis
         if self.settings.update_interval != 0:
-            self._procs["wingen"] = WindowTransformer(
+            # TODO: Verify update_interval corresponds to at least as many samples as
+            #  the product of the remaining shape.
+            self._procs["windowing"] = WindowTransformer(
                 axis=iter_axis,
                 window_dur=self.settings.update_interval,
                 window_shift=self.settings.update_interval,
@@ -147,7 +157,7 @@ class IncrementalDecompTransformer(
         :return: Decomposed version of input message.
 
         """
-        iter_axis, targ_axes, off_targ_axes = self._get_axis_groups(message)
+        iter_axis, targ_axes, off_targ_axes = self._state.axis_groups
         ax_idx = message.get_axis_idx(iter_axis)
         in_dat = message.data
 
@@ -168,13 +178,13 @@ class IncrementalDecompTransformer(
         in_dat = in_dat.reshape((-1, d2))
 
         # Prepare training data
-        if self._procs["wingen"] is None or not hasattr(
+        if self._procs["windowing"] is None or not hasattr(
             self._procs["decomp"], "components_"
         ):
             # No windowing or this is the first pass
             self._procs["decomp"].partial_fit(in_dat)
         else:
-            train_msg = self._procs["wingen"].send(message)
+            train_msg = self._procs["windowing"].send(message)
             _shp = train_msg.data.shape
             new_shape = (
                 _shp[:ax_idx]
