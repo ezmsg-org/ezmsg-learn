@@ -4,7 +4,8 @@ import numpy as np
 from sklearn.linear_model._base import LinearModel
 import ezmsg.core as ez
 from ezmsg.sigproc.base import (
-    ProcessorState,
+    processor_settings,
+    processor_state,
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
 )
@@ -14,20 +15,22 @@ from ezmsg.sigproc.sampler import SampleMessage
 from ..util import REGRESSORS, LinearRegressor
 
 
-class LinearRegressorSettings(ez.Settings):
+@processor_settings
+class LinearRegressorSettings:
     model_type: LinearRegressor = LinearRegressor.LINEAR
     settings_path: str | None = None
     model_kwargs: dict = field(default_factory=dict)
 
 
-class LinearRegressorState(ProcessorState):
+@processor_state
+class LinearRegressorState:
     template: AxisArray | None = None
     model: LinearModel | None = None
 
 
 class LinearRegressorTransformer(
     BaseAdaptiveTransformer[
-        LinearRegressorSettings, AxisArray, LinearRegressorState
+        LinearRegressorSettings, AxisArray, AxisArray, LinearRegressorState
     ]
 ):
     """
@@ -90,7 +93,7 @@ class LinearRegressorTransformer(
 class AdaptiveLinearRegressorUnit(
     BaseAdaptiveTransformerUnit[
         LinearRegressorSettings,
-        AxisArray,
+        AxisArray, AxisArray,
         LinearRegressorTransformer,
     ]
 ):

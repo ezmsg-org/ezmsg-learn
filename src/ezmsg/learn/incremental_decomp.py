@@ -1,4 +1,5 @@
 import pickle
+import typing
 
 import numpy as np
 from sklearn.decomposition import IncrementalPCA, MiniBatchNMF
@@ -8,13 +9,15 @@ from ezmsg.util.messages.util import replace
 from ezmsg.sigproc.base import (
     CompositeProcessor,
     BaseTransformerUnit,
-    ProcessorState,
+    processor_state,
+    processor_settings,
     BaseStatefulProcessor,
 )
 from ezmsg.sigproc.window import WindowTransformer
 
 
-class IncrementalDecompSettings(ez.Settings):
+@processor_settings
+class IncrementalDecompSettings:
     axis: str = "!time"
     n_components: int = 2
     update_interval: float = 0.0
@@ -22,13 +25,14 @@ class IncrementalDecompSettings(ez.Settings):
     # TODO: More parameters needed, especially for NMF
 
 
-class IncrementalDecompState(ProcessorState):
+@processor_state
+class IncrementalDecompState:
     template: AxisArray | None = None
     axis_groups: tuple[str, list[str], list[str]] | None = None
 
 
 class IncrementalDecompTransformer(
-    CompositeProcessor[IncrementalDecompSettings, AxisArray]
+    CompositeProcessor[IncrementalDecompSettings, AxisArray, AxisArray]
 ):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -126,13 +130,13 @@ class IncrementalDecompTransformer(
         )
 
     @property
-    def state(self) -> dict[str, ProcessorState]:
+    def state(self) -> dict[str, typing.Any]:
         return {**super().state, "self": self._state}
 
     @state.setter
     def state(
         self,
-        state: dict[str, ProcessorState | IncrementalDecompSettings] | bytes | None,
+        state: dict[str, typing.Any | IncrementalDecompSettings] | bytes | None,
     ) -> None:
         if state is not None:
             if isinstance(state, bytes):
@@ -211,7 +215,7 @@ class IncrementalDecompTransformer(
 
 class IncrementalDecomp(
     BaseTransformerUnit[
-        IncrementalDecompSettings, AxisArray, IncrementalDecompTransformer
+        IncrementalDecompSettings, AxisArray, AxisArray, IncrementalDecompTransformer
     ]
 ):
     SETTINGS = IncrementalDecompSettings

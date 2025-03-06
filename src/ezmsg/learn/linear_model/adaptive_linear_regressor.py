@@ -1,6 +1,5 @@
 from dataclasses import field
 
-import ezmsg.core as ez
 import numpy as np
 import pandas as pd
 import river.optim
@@ -8,7 +7,8 @@ import river.linear_model
 import sklearn.base
 from ezmsg.sigproc.sampler import SampleMessage
 from ezmsg.sigproc.base import (
-    ProcessorState,
+    processor_settings,
+    processor_state,
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
 )
@@ -17,20 +17,22 @@ from ezmsg.util.messages.axisarray import AxisArray, replace
 from ..util import REGRESSORS, AdaptiveLinearRegressor
 
 
-class AdaptiveLinearRegressorSettings(ez.Settings):
+@processor_settings
+class AdaptiveLinearRegressorSettings:
     model_type: AdaptiveLinearRegressor = AdaptiveLinearRegressor.LINEAR
     settings_path: str | None = None
     model_kwargs: dict = field(default_factory=dict)
 
 
-class AdaptiveLinearRegressorState(ProcessorState):
+@processor_state
+class AdaptiveLinearRegressorState:
     template: AxisArray | None = None
     model: river.linear_model.base.GLM | sklearn.base.RegressorMixin | None = None
 
 
 class AdaptiveLinearRegressorTransformer(
     BaseAdaptiveTransformer[
-        AdaptiveLinearRegressorSettings, AxisArray, AdaptiveLinearRegressorState
+        AdaptiveLinearRegressorSettings, AxisArray, AxisArray, AdaptiveLinearRegressorState
     ]
 ):
     def __init__(self, *args, **kwargs):
@@ -106,7 +108,7 @@ class AdaptiveLinearRegressorTransformer(
             key=message.trigger.value.key + "_pred",
         )
 
-    def _process(self, message: AxisArray) -> AxisArray:
+    def _process(self, message: AxisArray) -> AxisArray | None:
         if self.state.template is None:
             return AxisArray(np.array([]), dims=[""])
 
@@ -136,7 +138,7 @@ class AdaptiveLinearRegressorTransformer(
 class AdaptiveLinearRegressorUnit(
     BaseAdaptiveTransformerUnit[
         AdaptiveLinearRegressorSettings,
-        AxisArray,
+        AxisArray, AxisArray,
         AdaptiveLinearRegressorTransformer,
     ]
 ):
