@@ -12,6 +12,7 @@ dependencies = [
     "ezmsg-sigproc",
     "river>=0.22.0",
     "scikit-learn>=1.6.0",
+    "torch>=2.6.0",
 ]
 
 [project.optional-dependencies]
