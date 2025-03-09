@@ -5,9 +5,9 @@ import pandas as pd
 import river.optim
 import river.linear_model
 import sklearn.base
+import ezmsg.core as ez
 from ezmsg.sigproc.sampler import SampleMessage
 from ezmsg.sigproc.base import (
-    processor_settings,
     processor_state,
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
@@ -17,8 +17,7 @@ from ezmsg.util.messages.axisarray import AxisArray, replace
 from ..util import REGRESSORS, AdaptiveLinearRegressor
 
 
-@processor_settings
-class AdaptiveLinearRegressorSettings:
+class AdaptiveLinearRegressorSettings(ez.Settings):
     model_type: AdaptiveLinearRegressor = AdaptiveLinearRegressor.LINEAR
     settings_path: str | None = None
     model_kwargs: dict = field(default_factory=dict)

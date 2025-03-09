@@ -4,7 +4,6 @@ import numpy as np
 from sklearn.linear_model._base import LinearModel
 import ezmsg.core as ez
 from ezmsg.sigproc.base import (
-    processor_settings,
     processor_state,
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
@@ -15,8 +14,7 @@ from ezmsg.sigproc.sampler import SampleMessage
 from ..util import REGRESSORS, LinearRegressor
 
 
-@processor_settings
-class LinearRegressorSettings:
+class LinearRegressorSettings(ez.Settings):
     model_type: LinearRegressor = LinearRegressor.LINEAR
     settings_path: str | None = None
     model_kwargs: dict = field(default_factory=dict)

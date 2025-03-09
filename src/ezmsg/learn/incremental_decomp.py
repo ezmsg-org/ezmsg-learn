@@ -10,14 +10,12 @@ from ezmsg.sigproc.base import (
     CompositeProcessor,
     BaseTransformerUnit,
     processor_state,
-    processor_settings,
     BaseStatefulProcessor,
 )
 from ezmsg.sigproc.window import WindowTransformer
 
 
-@processor_settings
-class IncrementalDecompSettings:
+class IncrementalDecompSettings(ez.Settings):
     axis: str = "!time"
     n_components: int = 2
     update_interval: float = 0.0

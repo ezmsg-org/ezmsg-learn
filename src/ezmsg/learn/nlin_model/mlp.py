@@ -3,13 +3,13 @@ import typing
 import numpy as np
 import torch
 import torch.nn
+import ezmsg.core as ez
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.sigproc.sampler import SampleMessage
 from ezmsg.util.messages.util import replace
 from ezmsg.sigproc.base import (
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
-    processor_settings,
     processor_state,
 )
 
@@ -61,8 +61,7 @@ class MLP(torch.nn.Sequential):
         super().__init__(*layers)
 
 
-@processor_settings
-class MLPSettings:
+class MLPSettings(ez.Settings):
     hidden_channels: list[int]
     """List of the hidden channel dimensions"""
 
