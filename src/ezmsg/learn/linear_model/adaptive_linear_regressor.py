@@ -99,11 +99,14 @@ class AdaptiveLinearRegressorTransformer(
             )
             self.state.model.learn_many(x, y)
         else:
-            print("TODO: Do sklearn partial_fit")
+            X = message.sample.data
+            if message.sample.get_axis_idx("time") != 0:
+                X = np.moveaxis(X, message.sample.get_axis_idx("time"), 0)
+            self.state.model.partial_fit(X, message.trigger.value.data)
 
         self.state.template = replace(
             message.trigger.value,
-            data=np.array([]),
+            data=np.empty_like(message.trigger.value.data),
             key=message.trigger.value.key + "_pred",
         )
 
@@ -116,14 +119,21 @@ class AdaptiveLinearRegressorTransformer(
                 AdaptiveLinearRegressor.LINEAR,
                 AdaptiveLinearRegressor.LOGISTIC,
             ]:
-                # TODO: covnert msg_in.data to something appropriate for river
-                preds = self.state.model.predict_many(message.data)
-                # TODO: Convert preds to a numpy array
+                # convert msg_in.data to something appropriate for river
+                x = pd.DataFrame.from_dict(
+                    {
+                        k: v
+                        for k, v in zip(
+                        message.axes["ch"].data, message.data.T
+                    )
+                    }
+                )
+                preds = self.state.model.predict_many(x).values
             else:
                 preds = self.state.model.predict(message.data)
             return replace(
                 self.state.template,
-                data=preds,
+                data=preds.reshape((len(preds), -1)),
                 axes={
                     **self.state.template.axes,
                     "time": replace(

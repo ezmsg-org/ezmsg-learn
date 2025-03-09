@@ -7,7 +7,7 @@ from ezmsg.sigproc.sampler import SampleTriggerMessage, SampleMessage
 from ezmsg.learn.linear_model.adaptive_linear_regressor import AdaptiveLinearRegressorTransformer
 
 
-@pytest.mark.parametrize("model_type", ["linear"])  # , "logistic", "sgd", "par"])
+@pytest.mark.parametrize("model_type", ["linear", "logistic", "sgd", "par"])
 def test_adaptive_linear_regressor(model_type: str):
     n_ch = 3
     dur = 1.0
@@ -48,4 +48,5 @@ def test_adaptive_linear_regressor(model_type: str):
     proc = AdaptiveLinearRegressorTransformer(model_type=model_type)
     _ = proc.send(samp)
     preds = proc.send(replace(sig_axarr, data=X + np.random.randn(*X.shape)))
-    print(preds)
+    assert isinstance(preds, AxisArray)
+    assert preds.data.shape == (n_times, 1)
