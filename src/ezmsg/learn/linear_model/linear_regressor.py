@@ -11,11 +11,11 @@ from ezmsg.sigproc.base import (
 from ezmsg.util.messages.axisarray import AxisArray, replace
 from ezmsg.sigproc.sampler import SampleMessage
 
-from ..util import get_regressor, LinearRegressor, RegressorType
+from ..util import get_regressor, StaticLinearRegressor, RegressorType
 
 
 class LinearRegressorSettings(ez.Settings):
-    model_type: LinearRegressor = LinearRegressor.LINEAR
+    model_type: StaticLinearRegressor = StaticLinearRegressor.LINEAR
     settings_path: str | None = None
     model_kwargs: dict = field(default_factory=dict)
 
