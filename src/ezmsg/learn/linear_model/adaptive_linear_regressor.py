@@ -14,7 +14,7 @@ from ezmsg.sigproc.base import (
 )
 from ezmsg.util.messages.axisarray import AxisArray, replace
 
-from ..util import REGRESSORS, AdaptiveLinearRegressor
+from ..util import AdaptiveLinearRegressor, RegressorType, get_regressor
 
 
 class AdaptiveLinearRegressorSettings(ez.Settings):
@@ -36,6 +36,7 @@ class AdaptiveLinearRegressorTransformer(
 ):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.settings = replace(self.settings, model_type=AdaptiveLinearRegressor(self.settings.model_type))
         b_river = self.settings.model_type in [
             AdaptiveLinearRegressor.LINEAR,
             AdaptiveLinearRegressor.LOGISTIC,
@@ -63,9 +64,8 @@ class AdaptiveLinearRegressorTransformer(
                 print("TODO: Override sklearn model with kwargs")
         else:
             # Build model from scratch.
-            self.state.model = REGRESSORS[self.settings.model_type](
-                **self.settings.model_kwargs
-            )
+            regressor_klass = get_regressor(RegressorType.ADAPTIVE, self.settings.model_type)
+            self.state.model = regressor_klass(**self.settings.model_kwargs)
 
     def _hash_message(self, message: AxisArray) -> int:
         # So far, nothing to reset so hash can be constant.

@@ -11,7 +11,7 @@ from ezmsg.sigproc.base import (
 from ezmsg.util.messages.axisarray import AxisArray, replace
 from ezmsg.sigproc.sampler import SampleMessage
 
-from ..util import REGRESSORS, LinearRegressor
+from ..util import get_regressor, LinearRegressor, RegressorType
 
 
 class LinearRegressorSettings(ez.Settings):
@@ -46,7 +46,8 @@ class LinearRegressorTransformer(
             with open(self.settings.settings_path, "rb") as f:
                 self.state.model = pickle.load(f)
         else:
-            self.state.model = REGRESSORS[self.settings.model_type](**self.settings.model_kwargs)
+            regressor_klass = get_regressor(RegressorType.STATIC, self.settings.model_type)
+            self.state.model = regressor_klass(**self.settings.model_kwargs)
 
     def _hash_message(self, message: AxisArray) -> int:
         # So far, nothing to reset so hash can be constant.
