@@ -103,7 +103,9 @@ class MLPState:
     device: object | None = None
 
 
-class MLPProcessor(BaseAdaptiveTransformer[MLPSettings, AxisArray, AxisArray, MLPState]):
+class MLPProcessor(
+    BaseAdaptiveTransformer[MLPSettings, AxisArray, AxisArray, MLPState]
+):
     def _hash_message(self, message: AxisArray) -> int:
         hash_items = (message.key,)
         if "ch" in message.dims:

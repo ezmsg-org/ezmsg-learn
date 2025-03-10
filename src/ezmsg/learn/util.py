@@ -36,8 +36,10 @@ ADAPTIVE_REGRESSORS = {
 
 
 # Function to get a regressor by type and name
-def get_regressor(regressor_type: typing.Union[RegressorType, str],
-                  regressor_name: typing.Union[AdaptiveLinearRegressor, StaticLinearRegressor, str]):
+def get_regressor(
+    regressor_type: typing.Union[RegressorType, str],
+    regressor_name: typing.Union[AdaptiveLinearRegressor, StaticLinearRegressor, str],
+):
     if isinstance(regressor_type, str):
         regressor_type = RegressorType(regressor_type)
 

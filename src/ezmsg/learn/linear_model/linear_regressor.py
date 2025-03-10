@@ -43,10 +43,13 @@ class LinearRegressorTransformer(
         if self.settings.settings_path is not None:
             # Load model from file
             import pickle
+
             with open(self.settings.settings_path, "rb") as f:
                 self.state.model = pickle.load(f)
         else:
-            regressor_klass = get_regressor(RegressorType.STATIC, self.settings.model_type)
+            regressor_klass = get_regressor(
+                RegressorType.STATIC, self.settings.model_type
+            )
             self.state.model = regressor_klass(**self.settings.model_kwargs)
 
     def _hash_message(self, message: AxisArray) -> int:
@@ -92,7 +95,8 @@ class LinearRegressorTransformer(
 class AdaptiveLinearRegressorUnit(
     BaseAdaptiveTransformerUnit[
         LinearRegressorSettings,
-        AxisArray, AxisArray,
+        AxisArray,
+        AxisArray,
         LinearRegressorTransformer,
     ]
 ):

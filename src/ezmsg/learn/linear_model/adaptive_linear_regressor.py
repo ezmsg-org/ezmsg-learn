@@ -31,12 +31,17 @@ class AdaptiveLinearRegressorState:
 
 class AdaptiveLinearRegressorTransformer(
     BaseAdaptiveTransformer[
-        AdaptiveLinearRegressorSettings, AxisArray, AxisArray, AdaptiveLinearRegressorState
+        AdaptiveLinearRegressorSettings,
+        AxisArray,
+        AxisArray,
+        AdaptiveLinearRegressorState,
     ]
 ):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.settings = replace(self.settings, model_type=AdaptiveLinearRegressor(self.settings.model_type))
+        self.settings = replace(
+            self.settings, model_type=AdaptiveLinearRegressor(self.settings.model_type)
+        )
         b_river = self.settings.model_type in [
             AdaptiveLinearRegressor.LINEAR,
             AdaptiveLinearRegressor.LOGISTIC,
@@ -64,7 +69,9 @@ class AdaptiveLinearRegressorTransformer(
                 print("TODO: Override sklearn model with kwargs")
         else:
             # Build model from scratch.
-            regressor_klass = get_regressor(RegressorType.ADAPTIVE, self.settings.model_type)
+            regressor_klass = get_regressor(
+                RegressorType.ADAPTIVE, self.settings.model_type
+            )
             self.state.model = regressor_klass(**self.settings.model_kwargs)
 
     def _hash_message(self, message: AxisArray) -> int:
@@ -121,12 +128,7 @@ class AdaptiveLinearRegressorTransformer(
             ]:
                 # convert msg_in.data to something appropriate for river
                 x = pd.DataFrame.from_dict(
-                    {
-                        k: v
-                        for k, v in zip(
-                        message.axes["ch"].data, message.data.T
-                    )
-                    }
+                    {k: v for k, v in zip(message.axes["ch"].data, message.data.T)}
                 )
                 preds = self.state.model.predict_many(x).values
             else:
@@ -147,7 +149,8 @@ class AdaptiveLinearRegressorTransformer(
 class AdaptiveLinearRegressorUnit(
     BaseAdaptiveTransformerUnit[
         AdaptiveLinearRegressorSettings,
-        AxisArray, AxisArray,
+        AxisArray,
+        AxisArray,
         AdaptiveLinearRegressorTransformer,
     ]
 ):
