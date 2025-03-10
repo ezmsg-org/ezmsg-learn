@@ -2,9 +2,12 @@ import typing
 
 import ezmsg.core as ez
 import numpy as np
-import numpy.typing as npt
-from ezmsg.sigproc.base import BaseStatefulTransformer, processor_state, BaseTransformerUnit
-from ezmsg.util.messages.axisarray import AxisArray, slice_along_axis
+from ezmsg.sigproc.base import (
+    BaseStatefulTransformer,
+    processor_state,
+    BaseTransformerUnit,
+)
+from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 
@@ -22,12 +25,14 @@ class SLDAState:
     out_template: typing.Optional[ClassifierMessage] = None
 
 
-class SLDATransformer(BaseStatefulTransformer[SLDASettings, AxisArray, ClassifierMessage, SLDAState]):
-
+class SLDATransformer(
+    BaseStatefulTransformer[SLDASettings, AxisArray, ClassifierMessage, SLDAState]
+):
     def _reset_state(self, message: AxisArray) -> None:
         if self.settings.settings_path[-4:] == ".mat":
             # Expects a very specific format from a specific project. Not for general use.
             import scipy.io as sio
+
             matlab_sLDA = sio.loadmat(self.settings.settings_path, squeeze_me=True)
             temp_weights = matlab_sLDA["weights"][1, 1:]
             temp_intercept = matlab_sLDA["weights"][1, 0]
@@ -38,7 +43,7 @@ class SLDATransformer(BaseStatefulTransformer[SLDASettings, AxisArray, Classifie
             n_channels = message.data.shape[message.dims.index("ch")]
             valid_indices = [ch for ch in channels if ch < n_channels]
             full_weights = np.zeros(n_channels)
-            full_weights[valid_indices] = temp_weights[:len(valid_indices)]
+            full_weights[valid_indices] = temp_weights[: len(valid_indices)]
 
             lda = LDA(solver="lsqr", shrinkage="auto")
             lda.classes_ = np.asarray([0, 1])
@@ -50,6 +55,7 @@ class SLDATransformer(BaseStatefulTransformer[SLDASettings, AxisArray, Classifie
             # lags = matlab_sLDA['lags'] + 1
         else:
             import pickle
+
             with open(self.settings.settings_path, "rb") as f:
                 self.state.lda = pickle.load(f)
 
@@ -74,7 +80,10 @@ class SLDATransformer(BaseStatefulTransformer[SLDASettings, AxisArray, Classifie
         X = np.moveaxis(message.data, samp_ax_idx, 0)
 
         if X.shape[0]:
-            if isinstance(self.settings.settings_path, str) and self.settings.settings_path[-4:] == ".mat":
+            if (
+                isinstance(self.settings.settings_path, str)
+                and self.settings.settings_path[-4:] == ".mat"
+            ):
                 # Assumes F-contiguous weights
                 pred_probas = []
                 for samp in X:
@@ -104,10 +113,7 @@ class SLDATransformer(BaseStatefulTransformer[SLDASettings, AxisArray, Classifie
             return self.state.out_template
 
 
-class SLDA(BaseTransformerUnit[
-    SLDASettings,
-    AxisArray,
-    ClassifierMessage,
-    SLDATransformer
-]):
+class SLDA(
+    BaseTransformerUnit[SLDASettings, AxisArray, ClassifierMessage, SLDATransformer]
+):
     SETTINGS = SLDASettings

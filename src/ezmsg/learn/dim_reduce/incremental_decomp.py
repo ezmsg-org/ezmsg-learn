@@ -1,11 +1,20 @@
-from ezmsg.sigproc.base import CompositeProcessor
+import typing
+
+import numpy as np
+import ezmsg.core as ez
+from ezmsg.util.messages.axisarray import AxisArray
+from ezmsg.sigproc.base import (
+    CompositeProcessor,
+    BaseStatefulProcessor,
+    BaseTransformerUnit,
+)
 from ezmsg.sigproc.window import WindowTransformer
 
 from .adaptive_decomp import (
     IncrementalPCASettings,
     IncrementalPCATransformer,
-    IncrementalNMFTSettings,
-    IncrementalNMFTransformer,
+    MiniBatchNMFSettings,
+    MiniBatchNMFTransformer,
 )
 
 

@@ -8,7 +8,7 @@ from ezmsg.learn.dim_reduce.adaptive_decomp import (
     IncrementalPCATransformer,
     IncrementalPCASettings,
     MiniBatchNMFTransformer,
-    MiniBatchNMFSettings
+    MiniBatchNMFSettings,
 )
 
 
@@ -34,22 +34,16 @@ def pca_test_data():
         dims=["time", "channel", "feature"],
         axes={
             "time": AxisArray.CoordinateAxis(
-                data=np.arange(n_samples).astype(float),
-                dims=["time"],
-                unit="s"
+                data=np.arange(n_samples).astype(float), dims=["time"], unit="s"
             ),
             "channel": AxisArray.CoordinateAxis(
-                data=np.array(["ch1"]),
-                dims=["channel"],
-                unit="channel"
+                data=np.array(["ch1"]), dims=["channel"], unit="channel"
             ),
             "feature": AxisArray.CoordinateAxis(
-                data=np.arange(n_features).astype(str),
-                dims=["feature"],
-                unit="feature"
-            )
+                data=np.arange(n_features).astype(str), dims=["feature"], unit="feature"
+            ),
         },
-        key="test"
+        key="test",
     )
 
     return {
@@ -57,7 +51,7 @@ def pca_test_data():
         "data": data,
         "n_samples": n_samples,
         "n_features": n_features,
-        "n_components": n_components
+        "n_components": n_components,
     }
 
 
@@ -80,22 +74,16 @@ def nmf_test_data():
         dims=["time", "channel", "feature"],
         axes={
             "time": AxisArray.CoordinateAxis(
-                data=np.arange(n_samples).astype(float),
-                dims=["time"],
-                unit="s"
+                data=np.arange(n_samples).astype(float), dims=["time"], unit="s"
             ),
             "channel": AxisArray.CoordinateAxis(
-                data=np.array(["ch1"]),
-                dims=["channel"],
-                unit="channel"
+                data=np.array(["ch1"]), dims=["channel"], unit="channel"
             ),
             "feature": AxisArray.CoordinateAxis(
-                data=np.arange(n_features).astype(str),
-                dims=["feature"],
-                unit="feature"
-            )
+                data=np.arange(n_features).astype(str), dims=["feature"], unit="feature"
+            ),
         },
-        key="test"
+        key="test",
     )
 
     return {
@@ -103,19 +91,16 @@ def nmf_test_data():
         "data": data,
         "n_samples": n_samples,
         "n_features": n_features,
-        "n_components": n_components
+        "n_components": n_components,
     }
 
 
 class TestIncrementalPCATransformer:
-
     def test_initialization(self, pca_test_data):
         """Test that the transformer initializes correctly"""
         n_components = pca_test_data["n_components"]
         settings = IncrementalPCASettings(
-            axis="feature",
-            n_components=n_components,
-            whiten=False
+            axis="feature", n_components=n_components, whiten=False
         )
         transformer = IncrementalPCATransformer(settings=settings)
 
@@ -129,10 +114,7 @@ class TestIncrementalPCATransformer:
         n_features = pca_test_data["n_features"]
         message = pca_test_data["message"]
 
-        settings = IncrementalPCASettings(
-            axis="feature",
-            n_components=n_components
-        )
+        settings = IncrementalPCASettings(axis="feature", n_components=n_components)
         transformer = IncrementalPCATransformer(settings=settings)
 
         # Partial fit
@@ -149,10 +131,7 @@ class TestIncrementalPCATransformer:
         message = pca_test_data["message"]
         data = pca_test_data["data"]
 
-        settings = IncrementalPCASettings(
-            axis="feature",
-            n_components=n_components
-        )
+        settings = IncrementalPCASettings(axis="feature", n_components=n_components)
         transformer = IncrementalPCATransformer(settings=settings)
 
         # Partial fit
@@ -176,10 +155,7 @@ class TestIncrementalPCATransformer:
         n_components = pca_test_data["n_components"]
         message = pca_test_data["message"]
 
-        settings = IncrementalPCASettings(
-            axis="feature",
-            n_components=n_components
-        )
+        settings = IncrementalPCASettings(axis="feature", n_components=n_components)
         transformer = IncrementalPCATransformer(settings=settings)
 
         # Process without fitting
@@ -192,15 +168,11 @@ class TestIncrementalPCATransformer:
 
 
 class TestMiniBatchNMFTransformer:
-
     def test_initialization(self, nmf_test_data):
         """Test that the transformer initializes correctly"""
         n_components = nmf_test_data["n_components"]
         settings = MiniBatchNMFSettings(
-            axis="feature",
-            n_components=n_components,
-            max_iter=100,
-            tol=1e-4
+            axis="feature", n_components=n_components, max_iter=100, tol=1e-4
         )
         transformer = MiniBatchNMFTransformer(settings=settings)
 
@@ -218,7 +190,7 @@ class TestMiniBatchNMFTransformer:
         settings = MiniBatchNMFSettings(
             axis="feature",
             n_components=n_components,
-            max_iter=50  # Reduce iterations for test speed
+            max_iter=50,  # Reduce iterations for test speed
         )
         transformer = MiniBatchNMFTransformer(settings=settings)
 
@@ -239,7 +211,7 @@ class TestMiniBatchNMFTransformer:
         settings = MiniBatchNMFSettings(
             axis="feature",
             n_components=n_components,
-            max_iter=50  # Reduce iterations for test speed
+            max_iter=50,  # Reduce iterations for test speed
         )
         transformer = MiniBatchNMFTransformer(settings=settings)
 
@@ -264,10 +236,7 @@ class TestMiniBatchNMFTransformer:
         n_components = nmf_test_data["n_components"]
         message = nmf_test_data["message"]
 
-        settings = MiniBatchNMFSettings(
-            axis="feature",
-            n_components=n_components
-        )
+        settings = MiniBatchNMFSettings(axis="feature", n_components=n_components)
         transformer = MiniBatchNMFTransformer(settings=settings)
 
         # Process without fitting

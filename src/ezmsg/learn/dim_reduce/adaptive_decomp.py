@@ -218,7 +218,8 @@ SettingsType = typing.TypeVar(
     "SettingsType", bound=typing.Union[IncrementalPCASettings, MiniBatchNMFSettings]
 )
 TransformerType = typing.TypeVar(
-    "TransformerType", bound=typing.Union[IncrementalPCATransformer, MiniBatchNMFTransformer]
+    "TransformerType",
+    bound=typing.Union[IncrementalPCATransformer, MiniBatchNMFTransformer],
 )
 
 

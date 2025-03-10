@@ -5,7 +5,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 import torch
 import torch.nn
-from ezmsg.util.messages.axisarray import AxisArray, replace
+from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.sigproc.sampler import SampleMessage, SampleTriggerMessage
 
 from ezmsg.learn.nlin_model.mlp import MLPProcessor

@@ -6,6 +6,7 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.learn.linear_model.slda import SLDATransformer, SLDASettings
 
+
 @pytest.fixture
 def lda_model_file():
     # Create a simple LDA model for testing
@@ -16,7 +17,7 @@ def lda_model_file():
     lda.intercept_ = np.array([0.1])
 
     # Save the model to a temporary file
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.pkl') as tmpfile:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pkl") as tmpfile:
         pickle.dump(lda, tmpfile)
         return tmpfile.name
 
@@ -37,9 +38,9 @@ def sample_message():
         dims=["time", "ch"],
         axes={
             "time": AxisArray.TimeAxis(offset=0, fs=100.0),
-            "ch": AxisArray.CoordinateAxis(data=np.array(["1", "2", "3"]), dims=["ch"])
+            "ch": AxisArray.CoordinateAxis(data=np.array(["1", "2", "3"]), dims=["ch"]),
         },
-        key="test"
+        key="test",
     )
 
 
@@ -86,9 +87,9 @@ def test_empty_data(slda_transformer, sample_message):
         dims=["time", "ch"],
         axes={
             "time": AxisArray.TimeAxis(offset=0, fs=100.0),
-            "ch": AxisArray.CoordinateAxis(data=np.array(["1", "2", "3"]), dims=["ch"])
+            "ch": AxisArray.CoordinateAxis(data=np.array(["1", "2", "3"]), dims=["ch"]),
         },
-        key="empty"
+        key="empty",
     )
 
     # Process empty message
