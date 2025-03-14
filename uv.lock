@@ -38,7 +38,7 @@ wheels = [
 
 [[package]]
 name = "ezmsg-learn"
-version = "0.1.dev25+g984beaf.d20250313"
+version = "0.1.dev27+g9f24d7b.d20250314"
 source = { editable = "." }
 dependencies = [
     { name = "ezmsg-sigproc" },
@@ -54,7 +54,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "ezmsg-sigproc", git = "https://github.com/ezmsg-org/ezmsg-sigproc.git?branch=76-adaptive-lattice-notch-filter" },
+    { name = "ezmsg-sigproc", git = "https://github.com/ezmsg-org/ezmsg-sigproc.git?branch=70-use-protocols-for-axisarray-transformers" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.4" },
     { name = "river", specifier = ">=0.22.0" },
     { name = "scikit-learn", specifier = ">=1.6.0" },
@@ -63,8 +63,8 @@ requires-dist = [
 
 [[package]]
 name = "ezmsg-sigproc"
-version = "1.8.2.dev100+gd981d97"
-source = { git = "https://github.com/ezmsg-org/ezmsg-sigproc.git?branch=76-adaptive-lattice-notch-filter#d981d9753d8d882129d19b7e3256b7d005097396" }
+version = "1.8.2.dev104+g1cff27a"
+source = { git = "https://github.com/ezmsg-org/ezmsg-sigproc.git?branch=70-use-protocols-for-axisarray-transformers#1cff27a9a041b8295c89d510cf7b114a1276e0d2" }
 dependencies = [
     { name = "ezmsg" },
     { name = "numba" },
