@@ -34,9 +34,22 @@ class AdaptiveDecompTransformer(
     ],
     typing.Generic[EstimatorType],
 ):
+    """
+    Base class for adaptive decomposition transformers. See IncrementalPCATransformer and MiniBatchNMFTransformer
+    for concrete implementations.
+
+    Note that for these classes, adaptation is not automatic. The user must call partial_fit on the transformer.
+    For automated adaptation, see IncrementalDecompTransformer.
+    """
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._estimator = self._create_estimator()
+
+    @classmethod
+    def get_message_type(cls, dir: str) -> typing.Type[AxisArray]:
+        # Override because we don't reuse the generic types.
+        return AxisArray
 
     @classmethod
     def get_estimator_type(cls) -> typing.Type[EstimatorType]:
@@ -185,6 +198,13 @@ class MiniBatchNMFSettings(AdaptiveDecompSettings):
     """
 
     batch_size: int = 1024
+    """
+    batch_size is used only when doing a full fit (i.e., a reset),
+    or as the exponent to forget_factor, where a very small batch_size
+    will cause the model to update more slowly.
+    It is better to set batch_size to a larger number than the expected
+    chunk size and instead use forget_factor to control the learning rate.
+    """
 
     beta_loss: typing.Union[str, float] = "frobenius"
     """

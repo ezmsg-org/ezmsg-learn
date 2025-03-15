@@ -61,7 +61,7 @@ class IncrementalDecompTransformer(
             decomp_settings = MiniBatchNMFSettings(
                 axis=settings.axis,
                 n_components=settings.n_components,
-                batch_size=settings.batch_size,
+                batch_size=settings.batch_size if settings.batch_size else 1024,
                 init=settings.init,
                 beta_loss=settings.beta_loss,
                 tol=settings.tol,
@@ -73,9 +73,9 @@ class IncrementalDecompTransformer(
             decomp = MiniBatchNMFTransformer(settings=decomp_settings)
 
         # Create windowing processor if update_interval is specified
-        iter_axis = settings.axis[1:] if settings.axis.startswith("!") else "time"
-        windowing = None
         if settings.update_interval > 0:
+            # TODO: This `iter_axis` is likely incorrect.
+            iter_axis = settings.axis[1:] if settings.axis.startswith("!") else "time"
             windowing = WindowTransformer(
                 axis=iter_axis,
                 window_dur=settings.update_interval,
@@ -83,19 +83,23 @@ class IncrementalDecompTransformer(
                 zero_pad_until="none",
             )
 
-        return {
-            "decomp": decomp,
-            "windowing": windowing,
-        }
+            return {
+                "decomp": decomp,
+                "windowing": windowing,
+            }
+
+        return {"decomp": decomp}
 
     def _process(self, message: AxisArray) -> AxisArray:
         # If windowing is enabled, extract training samples and perform partial_fit
-        if self._procs["windowing"] is not None:
-            train_msg = self._procs["windowing"].send(message)
+        if "windowing" in self._procs:
+            train_msg = self._procs["windowing"](message)
             if np.prod(train_msg.data.shape) > 0:
-                self._procs["decomp"].partial_fit(train_msg)
+                for _msg in train_msg.iter_over_axis("win"):
+                    self._procs["decomp"].partial_fit(_msg)
+
         # Process the incoming message
-        decomp_result = self._procs["decomp"]._process(message)
+        decomp_result = self._procs["decomp"](message)
 
         return decomp_result
 
