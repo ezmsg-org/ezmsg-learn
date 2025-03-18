@@ -238,3 +238,19 @@ class TestIncrementalDecompTransformer:
         assert "time" in result.dims
         assert "components" in result.dims
         assert result.data.shape == (message.data.shape[0], n_components)
+
+    def test_pca_stateful_op(self, pca_test_data):
+        message = pca_test_data["message"]
+        n_components = pca_test_data["n_components"]
+        settings = IncrementalDecompSettings(
+            axis="!time",  # Decompose across all axes except time
+            n_components=n_components,
+            method="pca",
+            update_interval=0.5,
+        )
+        transformer = IncrementalDecompTransformer(settings=settings)
+
+        state1, res1 = transformer.stateful_op(None, message)
+        assert "decomp" in state1
+        estim_state = state1["decomp"][0].estimator
+        assert hasattr(estim_state, "components_") and estim_state.components_ is not None
