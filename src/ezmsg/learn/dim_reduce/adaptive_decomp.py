@@ -1,3 +1,4 @@
+import pickle
 import typing
 
 from sklearn.decomposition import IncrementalPCA, MiniBatchNMF
@@ -20,7 +21,7 @@ class AdaptiveDecompSettings(ez.Settings):
 class AdaptiveDecompState:
     template: AxisArray | None = None
     axis_groups: tuple[str, list[str], list[str]] | None = None
-    processor_state: typing.Any = None
+    estimator: typing.Any = None
 
 
 EstimatorType = typing.TypeVar(
@@ -44,7 +45,7 @@ class AdaptiveDecompTransformer(
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._estimator = self._create_estimator()
+        self._state.estimator = self._create_estimator()
 
     @classmethod
     def get_message_type(cls, dir: str) -> typing.Type[AxisArray]:
@@ -55,7 +56,7 @@ class AdaptiveDecompTransformer(
     def get_estimator_type(cls) -> typing.Type[EstimatorType]:
         return typing.get_args(cls.__orig_bases__[0])[0]
 
-    def _create_estimator(self):
+    def _create_estimator(self) -> EstimatorType:
         estimator_klass = self.get_estimator_type()
         estimator_settings = self.settings.__dict__.copy()
         estimator_settings.pop("axis")
@@ -80,7 +81,7 @@ class AdaptiveDecompTransformer(
                 for _ in (message.dims[:it_ax_ix] + message.dims[it_ax_ix + 1 :])
                 if _ != self.settings.axis
             ]
-        self.state.axis_groups = iter_axis, targ_axes, off_targ_axes
+        self._state.axis_groups = iter_axis, targ_axes, off_targ_axes
 
     def _hash_message(self, message: AxisArray) -> int:
         iter_axis = (
@@ -95,7 +96,7 @@ class AdaptiveDecompTransformer(
     def _reset_state(self, message: AxisArray) -> None:
         """Reset state"""
         self._calculate_axis_groups(message)
-        iter_axis, targ_axes, off_targ_axes = self.state.axis_groups
+        iter_axis, targ_axes, off_targ_axes = self._state.axis_groups
 
         # Template
         out_dims = [iter_axis] + off_targ_axes
@@ -115,7 +116,7 @@ class AdaptiveDecompTransformer(
         )
         out_shape = [message.data.shape[message.get_axis_idx(_)] for _ in off_targ_axes]
         out_shape = (0,) + tuple(out_shape) + (self.settings.n_components,)
-        self.state.template = AxisArray(
+        self._state.template = AxisArray(
             data=np.zeros(out_shape, dtype=float),
             dims=out_dims,
             axes=out_axes,
@@ -123,12 +124,12 @@ class AdaptiveDecompTransformer(
         )
 
     def _process(self, message: AxisArray) -> AxisArray:
-        iter_axis, targ_axes, off_targ_axes = self.state.axis_groups
+        iter_axis, targ_axes, off_targ_axes = self._state.axis_groups
         ax_idx = message.get_axis_idx(iter_axis)
         in_dat = message.data
 
         if in_dat.shape[ax_idx] == 0:
-            return self.state.template
+            return self._state.template
 
         # Re-order axes
         sorted_dims_exp = [iter_axis] + off_targ_axes + targ_axes
@@ -143,14 +144,14 @@ class AdaptiveDecompTransformer(
         in_dat = in_dat.reshape((-1, d2))
 
         # Transform data
-        if hasattr(self._estimator, "components_"):
-            decomp_dat = self._estimator.transform(in_dat).reshape(
-                (-1,) + self.state.template.data.shape[1:]
+        if hasattr(self._state.estimator, "components_"):
+            decomp_dat = self._state.estimator.transform(in_dat).reshape(
+                (-1,) + self._state.template.data.shape[1:]
             )
-            return replace(self.state.template, data=decomp_dat)
+            return replace(self._state.template, data=decomp_dat)
         else:
             # No components yet, return empty template
-            return self.state.template
+            return self._state.template
 
     def partial_fit(self, message: AxisArray) -> None:
         # Check if we need to reset state
@@ -159,7 +160,7 @@ class AdaptiveDecompTransformer(
             self._reset_state(message)
             self._hash = msg_hash
 
-        iter_axis, targ_axes, off_targ_axes = self.state.axis_groups
+        iter_axis, targ_axes, off_targ_axes = self._state.axis_groups
         ax_idx = message.get_axis_idx(iter_axis)
         in_dat = message.data
 
@@ -177,7 +178,7 @@ class AdaptiveDecompTransformer(
         in_dat = in_dat.reshape((-1, d2))
 
         # Fit the estimator
-        self._estimator.partial_fit(in_dat)
+        self._state.estimator.partial_fit(in_dat)
 
 
 class IncrementalPCASettings(AdaptiveDecompSettings):
