@@ -104,9 +104,9 @@ class TestIncrementalPCATransformer:
         )
         transformer = IncrementalPCATransformer(settings=settings)
 
-        assert isinstance(transformer._estimator, IncrementalPCA)
-        assert transformer._estimator.n_components == n_components
-        assert transformer._estimator.whiten is False
+        assert isinstance(transformer._state.estimator, IncrementalPCA)
+        assert transformer._state.estimator.n_components == n_components
+        assert transformer._state.estimator.whiten is False
 
     def test_partial_fit(self, pca_test_data):
         """Test partial fitting of the transformer"""
@@ -121,8 +121,8 @@ class TestIncrementalPCATransformer:
         transformer.partial_fit(message)
 
         # Check that the estimator has been fitted
-        assert hasattr(transformer._estimator, "components_")
-        assert transformer._estimator.components_.shape == (n_components, n_features)
+        assert hasattr(transformer._state.estimator, "components_")
+        assert transformer._state.estimator.components_.shape == (n_components, n_features)
 
     def test_process_after_fit(self, pca_test_data):
         """Test that processing works after fitting"""
@@ -146,7 +146,7 @@ class TestIncrementalPCATransformer:
         assert result.dims == ["time", "channel", "feature"]
 
         # Verify transform is consistent with sklearn's transform
-        expected = transformer._estimator.transform(data)
+        expected = transformer._state.estimator.transform(data)
         expected = expected.reshape(n_samples, 1, n_components)
         assert_array_almost_equal(result.data, expected)
 
@@ -176,10 +176,10 @@ class TestMiniBatchNMFTransformer:
         )
         transformer = MiniBatchNMFTransformer(settings=settings)
 
-        assert isinstance(transformer._estimator, MiniBatchNMF)
-        assert transformer._estimator.n_components == n_components
-        assert transformer._estimator.max_iter == 100
-        assert transformer._estimator.tol == 1e-4
+        assert isinstance(transformer._state.estimator, MiniBatchNMF)
+        assert transformer._state.estimator.n_components == n_components
+        assert transformer._state.estimator.max_iter == 100
+        assert transformer._state.estimator.tol == 1e-4
 
     def test_partial_fit(self, nmf_test_data):
         """Test partial fitting of the transformer"""
@@ -198,8 +198,8 @@ class TestMiniBatchNMFTransformer:
         transformer.partial_fit(message)
 
         # Check that the estimator has been fitted
-        assert hasattr(transformer._estimator, "components_")
-        assert transformer._estimator.components_.shape == (n_components, n_features)
+        assert hasattr(transformer._state.estimator, "components_")
+        assert transformer._state.estimator.components_.shape == (n_components, n_features)
 
     def test_process_after_fit(self, nmf_test_data):
         """Test that processing works after fitting"""
@@ -227,7 +227,7 @@ class TestMiniBatchNMFTransformer:
         assert result.dims == ["time", "channel", "feature"]
 
         # Verify transform is consistent with sklearn's transform
-        expected = transformer._estimator.transform(data)
+        expected = transformer._state.estimator.transform(data)
         expected = expected.reshape(n_samples, 1, n_components)
         assert_array_almost_equal(result.data, expected)
 
