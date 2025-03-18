@@ -1,4 +1,3 @@
-import pickle
 import typing
 
 from sklearn.decomposition import IncrementalPCA, MiniBatchNMF

@@ -253,4 +253,6 @@ class TestIncrementalDecompTransformer:
         state1, res1 = transformer.stateful_op(None, message)
         assert "decomp" in state1
         estim_state = state1["decomp"][0].estimator
-        assert hasattr(estim_state, "components_") and estim_state.components_ is not None
+        assert (
+            hasattr(estim_state, "components_") and estim_state.components_ is not None
+        )

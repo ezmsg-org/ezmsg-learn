@@ -91,9 +91,9 @@ class IncrementalDecompTransformer(
         return {"decomp": decomp}
 
     def stateful_op(
-            self,
-            state: dict[str, tuple[typing.Any, int]] | None,
-            message: AxisArray,
+        self,
+        state: dict[str, tuple[typing.Any, int]] | None,
+        message: AxisArray,
     ) -> tuple[dict[str, tuple[typing.Any, int]], AxisArray]:
         state = state or {}
 
@@ -102,13 +102,17 @@ class IncrementalDecompTransformer(
             # If the estimator has not been trained once, train it with the first message
             self._procs["decomp"].partial_fit(message)
         elif "windowing" in self._procs:
-            state["windowing"], train_msg = self._procs["windowing"].stateful_op(state.get("windowing", None), message)
+            state["windowing"], train_msg = self._procs["windowing"].stateful_op(
+                state.get("windowing", None), message
+            )
             if np.prod(train_msg.data.shape) > 0:
                 for _msg in train_msg.iter_over_axis("win"):
                     self._procs["decomp"].partial_fit(_msg)
 
         # Process the incoming message
-        state["decomp"], result = self._procs["decomp"].stateful_op(state.get("decomp", None), message)
+        state["decomp"], result = self._procs["decomp"].stateful_op(
+            state.get("decomp", None), message
+        )
 
         return state, result
 
