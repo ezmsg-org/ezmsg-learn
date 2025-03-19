@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 
 from ezmsg.util.messages.axisarray import AxisArray
+from ezmsg.util.messages.chunker import array_chunker
 from ezmsg.learn.dim_reduce.incremental_decomp import (
     IncrementalDecompSettings,
     IncrementalDecompTransformer,
@@ -206,6 +207,13 @@ class TestIncrementalDecompTransformer:
         transformer._procs["decomp"].partial_fit = spy_partial_fit
 
         # Process the message
+        _ = transformer(message)
+        assert call_count[0] == 1, "First message should call partial_fit once for initial training"
+
+        # Reset call counter
+        call_count[0] = 0
+
+        # Call again. We reuse the same message purely out of laziness.
         _ = transformer(message)
 
         # Check that partial_fit was called an appropriate number of times.
