@@ -73,6 +73,10 @@ class AdaptiveDecompTransformer(
             targ_axes = [self.settings.axis]
             # Iterate over streaming axis
             iter_axis = "win" if "win" in message.dims else "time"
+            if iter_axis == self.settings.axis:
+                raise ValueError(
+                    f"Iterating axis ({iter_axis}) cannot be the same as the target axis ({self.settings.axis})"
+                )
             it_ax_ix = message.get_axis_idx(iter_axis)
             # Remaining axes are to be treated independently
             off_targ_axes = [
