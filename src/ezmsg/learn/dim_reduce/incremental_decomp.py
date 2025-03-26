@@ -116,6 +116,28 @@ class IncrementalDecompTransformer(
 
         return state, result
 
+    async def _aprocess(self, message: AxisArray) -> AxisArray:
+        """
+        Asynchronously process the incoming message.
+        This is nearly identical to the _process method, but the processors
+        are called asynchronously.
+        """
+        estim = self._procs["decomp"]._state.estimator
+        if not hasattr(estim, "components_") or estim.components_ is None:
+            # If the estimator has not been trained once, train it with the first message
+            self._procs["decomp"].partial_fit(message)
+        elif "windowing" in self._procs:
+            # If windowing is enabled, extract training samples and perform partial_fit
+            train_msg = await self._procs["windowing"].__acall__(message)
+            if np.prod(train_msg.data.shape) > 0:
+                for _msg in train_msg.iter_over_axis("win"):
+                    self._procs["decomp"].partial_fit(_msg)
+
+        # Process the incoming message
+        decomp_result = await self._procs["decomp"].__acall__(message)
+
+        return decomp_result
+
     def _process(self, message: AxisArray) -> AxisArray:
         estim = self._procs["decomp"]._state.estimator
         if not hasattr(estim, "components_") or estim.components_ is None:
