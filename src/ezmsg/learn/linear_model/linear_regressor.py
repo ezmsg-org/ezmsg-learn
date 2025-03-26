@@ -52,10 +52,6 @@ class LinearRegressorTransformer(
             )
             self.state.model = regressor_klass(**self.settings.model_kwargs)
 
-    def _hash_message(self, message: AxisArray) -> int:
-        # So far, nothing to reset so hash can be constant.
-        return -1
-
     def _reset_state(self, message: AxisArray) -> None:
         # So far, there is nothing to reset.
         #  .model and .template are initialized in __init__
