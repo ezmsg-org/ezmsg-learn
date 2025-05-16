@@ -34,4 +34,4 @@ version-file = "src/ezmsg/learn/__version__.py"
 packages = ["src/ezmsg"]
 
 [tool.uv.sources]
-ezmsg-sigproc = { git = "https://github.com/ezmsg-org/ezmsg-sigproc.git", branch = "70-use-protocols-for-axisarray-transformers" }
+ezmsg-sigproc = { git = "https://github.com/ezmsg-org/ezmsg-sigproc.git", branch = "dev" }
