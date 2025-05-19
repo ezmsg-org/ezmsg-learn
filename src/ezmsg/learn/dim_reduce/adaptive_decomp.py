@@ -146,15 +146,18 @@ class AdaptiveDecompTransformer(
         d2 = np.prod(in_dat.shape[len(off_targ_axes) + 1 :])
         in_dat = in_dat.reshape((-1, d2))
 
+        replace_kwargs = {
+            "axes": {**self._state.template.axes, iter_axis: message.axes[iter_axis]},
+        }
+
         # Transform data
         if hasattr(self._state.estimator, "components_"):
             decomp_dat = self._state.estimator.transform(in_dat).reshape(
                 (-1,) + self._state.template.data.shape[1:]
             )
-            return replace(self._state.template, data=decomp_dat)
-        else:
-            # No components yet, return empty template
-            return self._state.template
+            replace_kwargs["data"] = decomp_dat
+
+        return replace(self._state.template, **replace_kwargs)
 
     def partial_fit(self, message: AxisArray) -> None:
         # Check if we need to reset state
