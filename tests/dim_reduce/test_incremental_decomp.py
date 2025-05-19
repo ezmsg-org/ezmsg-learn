@@ -1,8 +1,7 @@
 import pytest
 import numpy as np
 
-from ezmsg.util.messages.axisarray import AxisArray
-from ezmsg.util.messages.chunker import array_chunker
+from ezmsg.util.messages.axisarray import AxisArray, slice_along_axis, replace
 from ezmsg.learn.dim_reduce.incremental_decomp import (
     IncrementalDecompSettings,
     IncrementalDecompTransformer,
@@ -13,79 +12,96 @@ from ezmsg.learn.dim_reduce.adaptive_decomp import (
 )
 
 
-@pytest.fixture
-def pca_test_data():
+def gen_test_data(nmf: bool = False):
     # Create random data with predictable components
-    np.random.seed(42)
-    n_samples = 100
+    fs = 50.0
+    test_dur = 10.0
+    chunk_dur = 0.2
     n_features = 10
     n_components = 3
 
     # Create data with clear components
-    components = np.random.randn(n_components, n_features)
-    coefficients = np.random.randn(n_samples, n_components)
-    data = np.dot(coefficients, components)
+    np.random.seed(42)
+    n_samples = int(fs * test_dur)
 
-    # Add noise
-    data += 0.1 * np.random.randn(n_samples, n_features)
+    if nmf:
+        # Non-negative data
+        components = np.abs(np.random.randn(n_components, n_features))
+        coefficients = np.abs(np.random.randn(n_samples, n_components))
+        data = np.dot(coefficients, components)
+    else:
+        # Standard PCA data
+        components = np.random.randn(n_components, n_features)
+        coefficients = np.random.randn(n_samples, n_components)
+        data = np.dot(coefficients, components)
+        # Add noise
+        data += 0.1 * np.random.randn(n_samples, n_features)
 
-    # Create AxisArray message
-    message = AxisArray(
-        data=data.reshape(n_samples, 1, n_features),
-        dims=["time", "channel", "feature"],
+    # Reshape with empty channels dimension
+    data = data.reshape(n_samples, 1, n_features)
+
+    # Prepare chunking
+    t0 = 0.0
+    chunk0_dur = 2.0
+    chunk0_len = int(chunk0_dur * fs)
+    chunk_len = int(chunk_dur * fs)
+    n_chunks = int((n_samples - chunk0_len) // chunk_len) + 1
+    tvec = np.hstack(([0], np.arange(chunk0_len, n_samples, chunk_len))) / fs + t0
+
+    template = AxisArray(
+        slice_along_axis(data, slice(None, chunk0_len), 0),
+        dims=["time", "ch", "feature"],
         axes={
-            "time": AxisArray.TimeAxis(fs=50.0, offset=0.0),
-            "channel": AxisArray.CoordinateAxis(
-                data=np.array(["ch1"]), dims=["channel"], unit="channel"
-            ),
-            "feature": AxisArray.CoordinateAxis(
-                data=np.arange(n_features).astype(str), dims=["feature"], unit="feature"
-            ),
+            "time": AxisArray.TimeAxis(fs=fs, offset=t0),
+            "ch": AxisArray.CoordinateAxis(data=np.array(["Ch0"]), unit="label", dims=["ch"]),
         },
-        key="test_incremental_decomp_pca",
     )
 
+    def axarr_generator():
+        for chunk_ix in range(n_chunks):
+            if chunk_ix == 0:
+                # The first chunk is larger than the rest and is already in the template.
+                axis_arr_out = template
+            else:
+                view = slice_along_axis(
+                    data, slice(chunk0_len + (chunk_ix - 1) * chunk_len, chunk0_len + chunk_ix * chunk_len), 0
+                )
+                axis_arr_out = replace(
+                    template,
+                    data=view,
+                    axes={
+                        **template.axes,
+                        "time": replace(template.axes["time"], offset=tvec[chunk_ix])
+                    },
+                )
+            yield axis_arr_out
+
     return {
-        "message": message,
+        "messages": axarr_generator(),
         "data": data,
         "n_components": n_components,
     }
 
 
 @pytest.fixture
+def pca_test_data():
+    return gen_test_data(nmf=False)
+
+
+@pytest.fixture
 def nmf_test_data():
-    # Create non-negative random data
-    np.random.seed(42)
-    n_samples = 100
-    n_features = 10
-    n_components = 3
+    return gen_test_data(nmf=True)
 
-    # Create non-negative data with clear components
-    components = np.abs(np.random.randn(n_components, n_features))
-    coefficients = np.abs(np.random.randn(n_samples, n_components))
-    data = np.dot(coefficients, components)
 
-    # Create AxisArray message
-    message = AxisArray(
-        data=data.reshape(n_samples, 1, n_features),
-        dims=["time", "channel", "feature"],
-        axes={
-            "time": AxisArray.TimeAxis(fs=50.0, offset=0.0),
-            "channel": AxisArray.CoordinateAxis(
-                data=np.array(["ch1"]), dims=["channel"], unit="channel"
-            ),
-            "feature": AxisArray.CoordinateAxis(
-                data=np.arange(n_features).astype(str), dims=["feature"], unit="feature"
-            ),
-        },
-        key="test_incremental_decomp_nmf",
-    )
+def _spy_partial_fit(transformer: IncrementalDecompTransformer, call_count: list[int]):
+    """Spy on the partial_fit method to track calls"""
+    original_partial_fit = transformer._procs["decomp"].partial_fit
 
-    return {
-        "message": message,
-        "data": data,
-        "n_components": n_components,
-    }
+    def spy_partial_fit(msg):
+        call_count[0] += 1
+        return original_partial_fit(msg)
+
+    transformer._procs["decomp"].partial_fit = spy_partial_fit
 
 
 class TestIncrementalDecompTransformer:
@@ -151,8 +167,7 @@ class TestIncrementalDecompTransformer:
         """Test processing with different decomposition methods"""
         test_data = request.getfixturevalue(test_data_fixture)
         n_components = test_data["n_components"]
-        message = test_data["message"]
-        n_samples = message.data.shape[0]
+        message_gen = test_data["messages"]
 
         settings_kwargs = {
             "axis": "feature",
@@ -170,22 +185,26 @@ class TestIncrementalDecompTransformer:
             settings=IncrementalDecompSettings(**settings_kwargs)
         )
 
-        # First do partial_fit manually to ensure the model is trained
-        transformer._procs["decomp"].partial_fit(message)
+        # Spy on partial fit so we can check it was called exactly once.
+        call_count = [0]
+        _spy_partial_fit(transformer, call_count)
 
-        # Then process
-        result = transformer(message)
+        result = [transformer(message) for message in message_gen]
 
         # Check output
-        assert isinstance(result, AxisArray)
-        assert result.data.shape == (n_samples, 1, n_components)
-        assert result.dims == ["time", "channel", "feature"]
+        assert call_count[0] == 1, "Only first message should call partial_fit"
+        assert isinstance(result[0], AxisArray)
+        assert result[0].data.shape[1:] == (1, n_components)
+        assert result[0].dims == ["time", "ch", "feature"]
+        assert np.all(np.diff([msg.axes["time"].offset for msg in result]) > 0), "Time axis offsets should be increasing"
+        if method == "nmf":
+            assert np.all(result[0].data >= 0), "NMF output should be non-negative"
 
-    @pytest.mark.parametrize("update_interval", [0.25, 0.5, 0.9, 1.0])
+    @pytest.mark.parametrize("update_interval", [0.24, 0.5, 0.9, 1.0])
     def test_update_interval(self, pca_test_data, update_interval):
         """Test that update_interval triggers partial_fits correctly"""
         n_components = pca_test_data["n_components"]
-        message = pca_test_data["message"]
+        message_gen = pca_test_data["messages"]
 
         # Create a transformer with update interval
         settings = IncrementalDecompSettings(
@@ -197,33 +216,26 @@ class TestIncrementalDecompTransformer:
         transformer = IncrementalDecompTransformer(settings=settings)
 
         # Create a spy on the partial_fit method to track calls
-        original_partial_fit = transformer._procs["decomp"].partial_fit
         call_count = [0]
+        _spy_partial_fit(transformer, call_count)
 
-        def spy_partial_fit(msg):
-            call_count[0] += 1
-            return original_partial_fit(msg)
-
-        transformer._procs["decomp"].partial_fit = spy_partial_fit
-
-        # Process the message
-        _ = transformer(message)
-        assert call_count[0] == 1, "First message should call partial_fit once for initial training"
-
-        # Reset call counter
-        call_count[0] = 0
-
-        # Call again. We reuse the same message purely out of laziness.
-        _ = transformer(message)
+        # Process the messages
+        result = [transformer(_) for _ in message_gen]
 
         # Check that partial_fit was called an appropriate number of times.
-        n_samples = message.data.shape[message.get_axis_idx("time")]
-        n_per_partial_fit = int(update_interval / message.axes["time"].gain)
-        assert call_count[0] == int(n_samples / n_per_partial_fit)
+        # We know the input data is 10 seconds of 50 Hz data.
+        #  We can use `update_interval` to calculate the expected number of partial_fit calls.
+        n_calls_expected = 1 + int((10.0 - 2.0) / update_interval)
+        assert call_count[0] == n_calls_expected
+        assert isinstance(result[0], AxisArray)
+        assert result[0].data.shape[1:] == (1, n_components)
+        assert result[0].dims == ["time", "ch", "feature"]
+        assert np.all(
+            np.diff([msg.axes["time"].offset for msg in result]) > 0), "Time axis offsets should be increasing"
 
     def test_different_axis(self, pca_test_data):
         """Test with different axis configurations"""
-        message = pca_test_data["message"]
+        message_gen = pca_test_data["messages"]
         n_components = pca_test_data["n_components"]
 
         # Test with !time axis
@@ -234,21 +246,15 @@ class TestIncrementalDecompTransformer:
             update_interval=0.0,
         )
         transformer = IncrementalDecompTransformer(settings=settings)
-
-        # First do partial_fit manually to ensure the model is trained
-        transformer._procs["decomp"].partial_fit(message)
-
-        # Then process
-        result = transformer(message)
+        result = [transformer(_) for _ in message_gen]
 
         # Check that the output has the expected dimensions
-        assert isinstance(result, AxisArray)
-        assert "time" in result.dims
-        assert "components" in result.dims
-        assert result.data.shape == (message.data.shape[0], n_components)
+        assert isinstance(result[0], AxisArray)
+        assert result[0].dims == ["time", "components"]
+        assert result[0].data.shape[1:] == (n_components,)
 
     def test_pca_stateful_op(self, pca_test_data):
-        message = pca_test_data["message"]
+        message_gen = pca_test_data["messages"]
         n_components = pca_test_data["n_components"]
         settings = IncrementalDecompSettings(
             axis="!time",  # Decompose across all axes except time
@@ -258,9 +264,22 @@ class TestIncrementalDecompTransformer:
         )
         transformer = IncrementalDecompTransformer(settings=settings)
 
-        state1, res1 = transformer.stateful_op(None, message)
-        assert "decomp" in state1
-        estim_state = state1["decomp"][0].estimator
-        assert (
-            hasattr(estim_state, "components_") and estim_state.components_ is not None
-        )
+        state = None
+        result = []
+        for msg in message_gen:
+            state, _res = transformer.stateful_op(state, msg)
+            result.append(_res)
+            # Check the result
+            assert isinstance(_res, AxisArray)
+            assert _res.dims == ["time", "components"]
+            assert _res.data.shape[1:] == (n_components,)
+            # Check the state
+            assert "decomp" in state
+            estim_state = state["decomp"][0].estimator
+            assert (
+                    hasattr(estim_state, "components_") and estim_state.components_ is not None
+            )
+
+        assert np.all(
+            np.diff([msg.axes["time"].offset for msg in result]) > 0
+        ), "Time axis offsets should be increasing"
