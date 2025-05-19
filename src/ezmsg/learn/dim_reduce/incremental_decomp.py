@@ -2,7 +2,7 @@ import typing
 
 import numpy as np
 import ezmsg.core as ez
-from ezmsg.util.messages.axisarray import AxisArray
+from ezmsg.util.messages.axisarray import AxisArray, replace
 from ezmsg.sigproc.base import (
     CompositeProcessor,
     BaseStatefulProcessor,
@@ -90,6 +90,31 @@ class IncrementalDecompTransformer(
 
         return {"decomp": decomp}
 
+    def _partial_fit_windowed(self, train_msg: AxisArray) -> None:
+        """
+        Helper function to do the partial_fit on the windowed message.
+        """
+        if np.prod(train_msg.data.shape) > 0:
+            # Windowing created a new "win" axis, but we don't actually want to use that
+            #  in the message we send to the decomp processor.
+            axis_idx = train_msg.get_axis_idx("win")
+            win_axis = train_msg.axes["win"]
+            offsets = win_axis.value(
+                np.asarray(range(train_msg.data.shape[axis_idx]))
+            )
+            for ix, _msg in enumerate(train_msg.iter_over_axis("win")):
+                _msg = replace(
+                    _msg,
+                    axes={
+                        **_msg.axes,
+                        "time": replace(
+                            _msg.axes["time"],
+                            offset=_msg.axes["time"].offset + offsets[ix]
+                        )
+                    }
+                )
+                self._procs["decomp"].partial_fit(_msg)
+
     def stateful_op(
         self,
         state: dict[str, tuple[typing.Any, int]] | None,
@@ -105,9 +130,7 @@ class IncrementalDecompTransformer(
             state["windowing"], train_msg = self._procs["windowing"].stateful_op(
                 state.get("windowing", None), message
             )
-            if np.prod(train_msg.data.shape) > 0:
-                for _msg in train_msg.iter_over_axis("win"):
-                    self._procs["decomp"].partial_fit(_msg)
+            self._partial_fit_windowed(train_msg)
 
         # Process the incoming message
         state["decomp"], result = self._procs["decomp"].stateful_op(
@@ -129,9 +152,7 @@ class IncrementalDecompTransformer(
         elif "windowing" in self._procs:
             # If windowing is enabled, extract training samples and perform partial_fit
             train_msg = await self._procs["windowing"].__acall__(message)
-            if np.prod(train_msg.data.shape) > 0:
-                for _msg in train_msg.iter_over_axis("win"):
-                    self._procs["decomp"].partial_fit(_msg)
+            self._partial_fit_windowed(train_msg)  # Non async
 
         # Process the incoming message
         decomp_result = await self._procs["decomp"].__acall__(message)
@@ -146,9 +167,7 @@ class IncrementalDecompTransformer(
         elif "windowing" in self._procs:
             # If windowing is enabled, extract training samples and perform partial_fit
             train_msg = self._procs["windowing"](message)
-            if np.prod(train_msg.data.shape) > 0:
-                for _msg in train_msg.iter_over_axis("win"):
-                    self._procs["decomp"].partial_fit(_msg)
+            self._partial_fit_windowed(train_msg)
 
         # Process the incoming message
         decomp_result = self._procs["decomp"](message)
