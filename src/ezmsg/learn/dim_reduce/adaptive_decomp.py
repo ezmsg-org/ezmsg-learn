@@ -119,11 +119,11 @@ class AdaptiveDecompTransformer(
         )
         out_shape = [message.data.shape[message.get_axis_idx(_)] for _ in off_targ_axes]
         out_shape = (0,) + tuple(out_shape) + (self.settings.n_components,)
-        self._state.template = AxisArray(
+        self._state.template = replace(
+            message,
             data=np.zeros(out_shape, dtype=float),
             dims=out_dims,
             axes=out_axes,
-            key=message.key,
         )
 
     def _process(self, message: AxisArray) -> AxisArray:
