@@ -171,3 +171,4 @@ cython_debug/
 .pypirc
 
 src/ezmsg/learn/__version__.py
+uv.lock
