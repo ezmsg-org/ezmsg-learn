@@ -4,7 +4,7 @@ import numpy as np
 from ezmsg.util.messages.axisarray import AxisArray, replace
 from ezmsg.sigproc.sampler import SampleTriggerMessage, SampleMessage
 
-from ezmsg.learn.linear_model.adaptive_linear_regressor import (
+from ezmsg.learn.process.adaptive_linear_regressor import (
     AdaptiveLinearRegressorTransformer,
 )
 
