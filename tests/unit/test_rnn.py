@@ -1,4 +1,5 @@
 import tempfile
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -172,13 +173,17 @@ def test_rnn_checkpoint_save_load(simple_message):
     # First pass to initialize model
     proc(simple_message)
 
-    # Save full checkpoint (state_dict + config)
-    with tempfile.NamedTemporaryFile(suffix=".pt") as tmp:
-        proc.save_checkpoint(tmp.name)
+    # Create a temporary file that is closed immediately
+    with tempfile.NamedTemporaryFile(suffix=".pt", delete=False) as tmp:
+        checkpoint_path = Path(tmp.name)
+
+    try:
+        # Save full checkpoint (state_dict + config)
+        proc.save_checkpoint(str(checkpoint_path))
 
         # Load from checkpoint
         proc2 = RNNProcessor(
-            checkpoint_path=tmp.name,
+            checkpoint_path=str(checkpoint_path),
             single_precision=single_precision,
             device="cpu",
             model_kwargs={
@@ -199,6 +204,10 @@ def test_rnn_checkpoint_save_load(simple_message):
             assert torch.equal(state_dict1[key], state_dict2[key]), (
                 f"Mismatch in parameter {key}"
             )
+
+    finally:
+        # Ensure the temporary file is deleted
+        checkpoint_path.unlink(missing_ok=True)
 
 
 def test_rnn_partial_fit_multiloss(simple_message):
@@ -322,7 +331,7 @@ def test_rnn_preserve_state_batch_size_change():
         single_precision=True,
         device="cpu",
         preserve_state_across_windows=True,
-        model_kwargs={"hidden_size": hidden_size, "output_heads": output_size},
+        model_kwargs={"hidden_size": hidden_size, "output_size": output_size},
     )
 
     # First message: 1 window
