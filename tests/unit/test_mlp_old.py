@@ -8,7 +8,7 @@ import torch.nn
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.sigproc.sampler import SampleMessage, SampleTriggerMessage
 
-from ezmsg.learn.nlin_model.mlp import MLPProcessor
+from ezmsg.learn.process.mlp_old import MLPProcessor
 
 
 @pytest.mark.parametrize("norm_layer", [None, torch.nn.BatchNorm1d])
