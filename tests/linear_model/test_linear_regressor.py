@@ -4,7 +4,7 @@ import numpy as np
 from ezmsg.util.messages.axisarray import AxisArray, replace
 from ezmsg.sigproc.sampler import SampleTriggerMessage, SampleMessage
 
-from ezmsg.learn.linear_model.linear_regressor import LinearRegressorTransformer
+from ezmsg.learn.process.linear_regressor import LinearRegressorTransformer
 
 
 @pytest.mark.parametrize("model_type", ["ridge", "linear"])
