@@ -1,4 +1,6 @@
 from pathlib import Path
+import os
+import sys
 
 import numpy as np
 import pytest
@@ -54,6 +56,14 @@ class MultiHeadModel(torch.nn.Module):
         return {"input_size": state_dict["head_a.weight"].shape[1]}
 
 
+@pytest.fixture
+def device():
+    """Returns 'cpu' if on macOS in GitHub Actions, otherwise None."""
+    if os.getenv("GITHUB_ACTIONS") == "true" and sys.platform == "darwin":
+        return "cpu"
+    return None
+
+
 @pytest.fixture(autouse=True)
 def mps_memory_cleanup():
     """Fixture to clean up MPS memory after each test."""
@@ -78,7 +88,7 @@ def batch_message():
 
 
 @pytest.mark.parametrize("input_size,output_size", [(4, 2), (6, 3), (8, 1)])
-def test_inference_shapes(input_size, output_size):
+def test_inference_shapes(input_size, output_size, device):
     data = np.random.randn(12, input_size)
     msg = AxisArray(
         data=data,
@@ -94,6 +104,7 @@ def test_inference_shapes(input_size, output_size):
             "input_size": input_size,
             "output_size": output_size,
         },
+        device=device,
     )
     out = proc(msg)[0]
     # Check output last dim matches output_size
@@ -138,13 +149,14 @@ def test_checkpoint_loading_and_weights(batch_message):
 
 
 @pytest.mark.parametrize("dropout", [0.0, 0.1, 0.5])
-def test_model_kwargs_propagation(dropout, batch_message):
+def test_model_kwargs_propagation(dropout, batch_message, device):
     proc = TorchModelProcessor(
         model_class=DUMMY_MODEL_CLASS,
         model_kwargs={
             "output_size": 2,
             "dropout": dropout,
         },
+        device=device,
     )
     proc(batch_message)
     model = proc._state.model
@@ -155,7 +167,7 @@ def test_model_kwargs_propagation(dropout, batch_message):
         assert model.dropout is None
 
 
-def test_partial_fit_changes_weights(batch_message):
+def test_partial_fit_changes_weights(batch_message, device):
     proc = TorchModelProcessor(
         model_class=DUMMY_MODEL_CLASS,
         loss_fn=torch.nn.MSELoss(),
@@ -163,6 +175,7 @@ def test_partial_fit_changes_weights(batch_message):
         model_kwargs={
             "output_size": 2,
         },
+        device=device,
     )
     x = batch_message.data[:1]
     y = np.random.randn(1, 2)
@@ -198,6 +211,7 @@ def test_partial_fit_changes_weights(batch_message):
             "input_size": x.shape[-1],
             "output_size": 2,
         },
+        device=device,
     )
     bad_proc(sample)
     with pytest.raises(ValueError):
@@ -209,8 +223,11 @@ def test_model_runs_on_devices(device, batch_message):
     # Skip unavailable devices
     if device == "cuda" and not torch.cuda.is_available():
         pytest.skip("CUDA not available")
-    if device == "mps" and not torch.backends.mps.is_available():
-        pytest.skip("MPS not available")
+    if device == "mps":
+        if not torch.backends.mps.is_available():
+            pytest.skip("MPS not available")
+        if os.getenv("GITHUB_ACTIONS") == "true":
+            pytest.skip("MPS memory limit too low on free GitHub Actions runner")
 
     proc = TorchModelProcessor(
         model_class=DUMMY_MODEL_CLASS,
@@ -226,7 +243,7 @@ def test_model_runs_on_devices(device, batch_message):
 
 
 @pytest.mark.parametrize("batch_size", [1, 5, 10])
-def test_batch_processing(batch_size):
+def test_batch_processing(batch_size, device):
     input_dim = 4
     output_dim = 2
     data = np.random.randn(batch_size, input_dim)
@@ -245,6 +262,7 @@ def test_batch_processing(batch_size):
             "input_size": input_dim,
             "output_size": output_dim,
         },
+        device=device,
     )
     out = proc(msg)[0]
     assert out.data.shape[0] == batch_size
@@ -273,10 +291,11 @@ def test_input_size_mismatch_raises_error():
         )(msg)
 
 
-def test_multihead_output(batch_message):
+def test_multihead_output(batch_message, device):
     proc = TorchModelProcessor(
         model_class=MULTIHEAD_MODEL_CLASS,
         model_kwargs={"input_size": batch_message.data.shape[1]},
+        device=device,
     )
     results = proc(batch_message)
 
@@ -286,7 +305,7 @@ def test_multihead_output(batch_message):
         assert r.data.ndim == 2
 
 
-def test_multihead_partial_fit_with_loss_dict(batch_message):
+def test_multihead_partial_fit_with_loss_dict(batch_message, device):
     proc = TorchModelProcessor(
         model_class=MULTIHEAD_MODEL_CLASS,
         loss_fn={
@@ -294,6 +313,7 @@ def test_multihead_partial_fit_with_loss_dict(batch_message):
             "head_b": torch.nn.L1Loss(),
         },
         model_kwargs={"input_size": batch_message.data.shape[1]},
+        device=device,
     )
 
     proc(batch_message)  # initialize model
@@ -324,7 +344,7 @@ def test_multihead_partial_fit_with_loss_dict(batch_message):
     assert not torch.allclose(before_b, after_b)
 
 
-def test_partial_fit_with_loss_weights(batch_message):
+def test_partial_fit_with_loss_weights(batch_message, device):
     proc = TorchModelProcessor(
         model_class=MULTIHEAD_MODEL_CLASS,
         loss_fn={
@@ -336,6 +356,7 @@ def test_partial_fit_with_loss_weights(batch_message):
             "head_b": 0.5,
         },
         model_kwargs={"input_size": batch_message.data.shape[1]},
+        device=device,
     )
     proc(batch_message)
 
