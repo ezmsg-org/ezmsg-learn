@@ -53,7 +53,9 @@ def gen_test_data(nmf: bool = False):
         dims=["time", "ch", "feature"],
         axes={
             "time": AxisArray.TimeAxis(fs=fs, offset=t0),
-            "ch": AxisArray.CoordinateAxis(data=np.array(["Ch0"]), unit="label", dims=["ch"]),
+            "ch": AxisArray.CoordinateAxis(
+                data=np.array(["Ch0"]), unit="label", dims=["ch"]
+            ),
         },
     )
 
@@ -64,14 +66,19 @@ def gen_test_data(nmf: bool = False):
                 axis_arr_out = template
             else:
                 view = slice_along_axis(
-                    data, slice(chunk0_len + (chunk_ix - 1) * chunk_len, chunk0_len + chunk_ix * chunk_len), 0
+                    data,
+                    slice(
+                        chunk0_len + (chunk_ix - 1) * chunk_len,
+                        chunk0_len + chunk_ix * chunk_len,
+                    ),
+                    0,
                 )
                 axis_arr_out = replace(
                     template,
                     data=view,
                     axes={
                         **template.axes,
-                        "time": replace(template.axes["time"], offset=tvec[chunk_ix])
+                        "time": replace(template.axes["time"], offset=tvec[chunk_ix]),
                     },
                 )
             yield axis_arr_out
@@ -196,7 +203,9 @@ class TestIncrementalDecompTransformer:
         assert isinstance(result[0], AxisArray)
         assert result[0].data.shape[1:] == (1, n_components)
         assert result[0].dims == ["time", "ch", "feature"]
-        assert np.all(np.diff([msg.axes["time"].offset for msg in result]) > 0), "Time axis offsets should be increasing"
+        assert np.all(np.diff([msg.axes["time"].offset for msg in result]) > 0), (
+            "Time axis offsets should be increasing"
+        )
         if method == "nmf":
             assert np.all(result[0].data >= 0), "NMF output should be non-negative"
 
@@ -230,8 +239,9 @@ class TestIncrementalDecompTransformer:
         assert isinstance(result[0], AxisArray)
         assert result[0].data.shape[1:] == (1, n_components)
         assert result[0].dims == ["time", "ch", "feature"]
-        assert np.all(
-            np.diff([msg.axes["time"].offset for msg in result]) > 0), "Time axis offsets should be increasing"
+        assert np.all(np.diff([msg.axes["time"].offset for msg in result]) > 0), (
+            "Time axis offsets should be increasing"
+        )
 
     def test_different_axis(self, pca_test_data):
         """Test with different axis configurations"""
@@ -277,9 +287,10 @@ class TestIncrementalDecompTransformer:
             assert "decomp" in state
             estim_state = state["decomp"][0].estimator
             assert (
-                    hasattr(estim_state, "components_") and estim_state.components_ is not None
+                hasattr(estim_state, "components_")
+                and estim_state.components_ is not None
             )
 
-        assert np.all(
-            np.diff([msg.axes["time"].offset for msg in result]) > 0
-        ), "Time axis offsets should be increasing"
+        assert np.all(np.diff([msg.axes["time"].offset for msg in result]) > 0), (
+            "Time axis offsets should be increasing"
+        )

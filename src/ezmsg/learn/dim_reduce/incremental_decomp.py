@@ -99,9 +99,7 @@ class IncrementalDecompTransformer(
             #  in the message we send to the decomp processor.
             axis_idx = train_msg.get_axis_idx("win")
             win_axis = train_msg.axes["win"]
-            offsets = win_axis.value(
-                np.asarray(range(train_msg.data.shape[axis_idx]))
-            )
+            offsets = win_axis.value(np.asarray(range(train_msg.data.shape[axis_idx])))
             for ix, _msg in enumerate(train_msg.iter_over_axis("win")):
                 _msg = replace(
                     _msg,
@@ -109,9 +107,9 @@ class IncrementalDecompTransformer(
                         **_msg.axes,
                         "time": replace(
                             _msg.axes["time"],
-                            offset=_msg.axes["time"].offset + offsets[ix]
-                        )
-                    }
+                            offset=_msg.axes["time"].offset + offsets[ix],
+                        ),
+                    },
                 )
                 self._procs["decomp"].partial_fit(_msg)
 

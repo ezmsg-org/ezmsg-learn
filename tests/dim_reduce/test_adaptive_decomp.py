@@ -122,7 +122,10 @@ class TestIncrementalPCATransformer:
 
         # Check that the estimator has been fitted
         assert hasattr(transformer._state.estimator, "components_")
-        assert transformer._state.estimator.components_.shape == (n_components, n_features)
+        assert transformer._state.estimator.components_.shape == (
+            n_components,
+            n_features,
+        )
 
     def test_process_after_fit(self, pca_test_data):
         """Test that processing works after fitting"""
@@ -199,7 +202,10 @@ class TestMiniBatchNMFTransformer:
 
         # Check that the estimator has been fitted
         assert hasattr(transformer._state.estimator, "components_")
-        assert transformer._state.estimator.components_.shape == (n_components, n_features)
+        assert transformer._state.estimator.components_.shape == (
+            n_components,
+            n_features,
+        )
 
     def test_process_after_fit(self, nmf_test_data):
         """Test that processing works after fitting"""
