@@ -41,3 +41,9 @@ version-file = "src/ezmsg/learn/__version__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ezmsg"]
+
+[tool.pytest.ini_options]
+pythonpath = [
+    "src",
+    ".",
+]
