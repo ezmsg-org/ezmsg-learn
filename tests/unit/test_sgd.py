@@ -2,7 +2,7 @@ import numpy as np
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.sigproc.sampler import SampleMessage, SampleTriggerMessage
 
-from ezmsg.learn.linear_model.sgd import sgd_decoder
+from ezmsg.learn.process.sgd import sgd_decoder
 
 
 def test_sgd():

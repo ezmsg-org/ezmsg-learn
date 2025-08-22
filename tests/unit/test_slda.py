@@ -4,7 +4,7 @@ import pickle
 import tempfile
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 from ezmsg.util.messages.axisarray import AxisArray
-from ezmsg.learn.linear_model.slda import SLDATransformer, SLDASettings
+from ezmsg.learn.process.slda import SLDATransformer, SLDASettings
 
 
 @pytest.fixture
