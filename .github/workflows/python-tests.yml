@@ -39,3 +39,5 @@ jobs:
 
       - name: Run tests
         run: uv run pytest tests
+        env:
+          PYTORCH_MPS_HIGH_WATERMARK_RATIO: 0.0
