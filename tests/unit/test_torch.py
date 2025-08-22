@@ -54,6 +54,14 @@ class MultiHeadModel(torch.nn.Module):
         return {"input_size": state_dict["head_a.weight"].shape[1]}
 
 
+@pytest.fixture(autouse=True)
+def mps_memory_cleanup():
+    """Fixture to clean up MPS memory after each test."""
+    yield
+    if torch.backends.mps.is_available():
+        torch.mps.empty_cache()
+
+
 @pytest.fixture
 def batch_message():
     input_dim = 6
