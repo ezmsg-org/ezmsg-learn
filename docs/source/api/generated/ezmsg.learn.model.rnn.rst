@@ -4,9 +4,29 @@
 .. automodule:: ezmsg.learn.model.rnn
 
    
+   
+   
+
+   
+   
+   
+
+   
+   
    .. rubric:: Classes
 
-   .. autosummary::
    
-      RNNModel
+   .. autoclass:: RNNModel
+      :members:
+      :undoc-members:
+      :show-inheritance:
+      :special-members: __init__
    
+   
+
+   
+   
+   
+
+
+

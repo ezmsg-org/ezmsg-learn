@@ -4,9 +4,29 @@
 .. automodule:: ezmsg.learn.model.refit_kalman
 
    
+   
+   
+
+   
+   
+   
+
+   
+   
    .. rubric:: Classes
 
-   .. autosummary::
    
-      RefitKalmanFilter
+   .. autoclass:: RefitKalmanFilter
+      :members:
+      :undoc-members:
+      :show-inheritance:
+      :special-members: __init__
    
+   
+
+   
+   
+   
+
+
+

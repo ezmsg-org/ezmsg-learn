@@ -44,10 +44,18 @@ master_doc = "index"
 
 # Auto-generate API docs
 autosummary_generate = True
+autosummary_imported_members = False
 autodoc_typehints = "description"
 autodoc_member_order = "bysource"
 autodoc_typehints_format = "short"
 python_use_unqualified_type_names = True
+autodoc_default_options = {
+    "members": True,
+    "member-order": "bysource",
+    "special-members": "__init__",
+    "undoc-members": True,
+    "show-inheritance": True,
+}
 
 # Don't show the full module path in the docs
 add_module_names = False

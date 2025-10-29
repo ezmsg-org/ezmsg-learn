@@ -4,11 +4,39 @@
 .. automodule:: ezmsg.learn.dim_reduce.incremental_decomp
 
    
+   
+   
+
+   
+   
+   
+
+   
+   
    .. rubric:: Classes
 
-   .. autosummary::
    
-      IncrementalDecompSettings
-      IncrementalDecompTransformer
-      IncrementalDecompUnit
+   .. autoclass:: IncrementalDecompSettings
+      :members:
+      :undoc-members:
+      :show-inheritance:
+      :special-members: __init__
+   .. autoclass:: IncrementalDecompTransformer
+      :members:
+      :undoc-members:
+      :show-inheritance:
+      :special-members: __init__
+   .. autoclass:: IncrementalDecompUnit
+      :members:
+      :undoc-members:
+      :show-inheritance:
+      :special-members: __init__
    
+   
+
+   
+   
+   
+
+
+

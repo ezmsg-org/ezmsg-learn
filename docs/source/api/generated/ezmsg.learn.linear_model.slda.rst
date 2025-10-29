@@ -4,3 +4,20 @@
 .. automodule:: ezmsg.learn.linear_model.slda
 
    
+   
+   
+
+   
+   
+   
+
+   
+   
+   
+
+   
+   
+   
+
+
+

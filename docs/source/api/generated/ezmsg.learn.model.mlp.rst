@@ -4,9 +4,29 @@
 .. automodule:: ezmsg.learn.model.mlp
 
    
+   
+   
+
+   
+   
+   
+
+   
+   
    .. rubric:: Classes
 
-   .. autosummary::
    
-      MLP
+   .. autoclass:: MLP
+      :members:
+      :undoc-members:
+      :show-inheritance:
+      :special-members: __init__
    
+   
+
+   
+   
+   
+
+
+
