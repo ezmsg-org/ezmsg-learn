@@ -4,3 +4,20 @@
 .. automodule:: ezmsg.learn.linear_model.adaptive_linear_regressor
 
    
+   
+   
+
+   
+   
+   
+
+   
+   
+   
+
+   
+   
+   
+
+
+

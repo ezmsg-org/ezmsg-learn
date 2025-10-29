@@ -4,9 +4,29 @@
 .. automodule:: ezmsg.learn.model.cca
 
    
+   
+   
+
+   
+   
+   
+
+   
+   
    .. rubric:: Classes
 
-   .. autosummary::
    
-      IncrementalCCA
+   .. autoclass:: IncrementalCCA
+      :members:
+      :undoc-members:
+      :show-inheritance:
+      :special-members: __init__
    
+   
+
+   
+   
+   
+
+
+

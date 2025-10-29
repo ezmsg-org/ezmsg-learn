@@ -4,9 +4,29 @@
 .. automodule:: ezmsg.learn.model.transformer
 
    
+   
+   
+
+   
+   
+   
+
+   
+   
    .. rubric:: Classes
 
-   .. autosummary::
    
-      TransformerModel
+   .. autoclass:: TransformerModel
+      :members:
+      :undoc-members:
+      :show-inheritance:
+      :special-members: __init__
    
+   
+
+   
+   
+   
+
+
+

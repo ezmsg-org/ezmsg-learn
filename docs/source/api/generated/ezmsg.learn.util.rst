@@ -4,18 +4,49 @@
 .. automodule:: ezmsg.learn.util
 
    
+   
+   
+
+   
+   
    .. rubric:: Functions
 
-   .. autosummary::
    
-      get_regressor
+   .. autofunction:: get_regressor
+   
+   
+
+   
    
    .. rubric:: Classes
 
-   .. autosummary::
    
-      AdaptiveLinearRegressor
-      ClassifierMessage
-      RegressorType
-      StaticLinearRegressor
+   .. autoclass:: AdaptiveLinearRegressor
+      :members:
+      :undoc-members:
+      :show-inheritance:
+      :special-members: __init__
+   .. autoclass:: ClassifierMessage
+      :members:
+      :undoc-members:
+      :show-inheritance:
+      :special-members: __init__
+   .. autoclass:: RegressorType
+      :members:
+      :undoc-members:
+      :show-inheritance:
+      :special-members: __init__
+   .. autoclass:: StaticLinearRegressor
+      :members:
+      :undoc-members:
+      :show-inheritance:
+      :special-members: __init__
    
+   
+
+   
+   
+   
+
+
+
