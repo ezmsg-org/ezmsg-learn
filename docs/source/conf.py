@@ -18,7 +18,8 @@ try:
 except ImportError:
     release = "unknown"
 
-version = release
+# For display purposes, extract the base version without git commit info
+version = release.split("+")[0] if release != "unknown" else release
 
 # -- General configuration --------------------------
 
@@ -82,7 +83,7 @@ html_baseurl = "https://www.ezmsg.org/ezmsg-learn/"
 
 html_theme_options = {
     "logo": {
-        "text": "ezmsg.learn",
+        "text": f"ezmsg.learn {version}",
         "link": "https://ezmsg.org",  # Link back to main site
     },
     "header_links_before_dropdown": 4,
