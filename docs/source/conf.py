@@ -70,6 +70,8 @@ intersphinx_mapping = {
     "sklearn": ("https://scikit-learn.org/stable/", None),
     "ezmsg": ("https://www.ezmsg.org/ezmsg/", None),
     "ezmsg.sigproc": ("https://www.ezmsg.org/ezmsg-sigproc/", None),
+    "ezmsg.event": ("https://www.ezmsg.org/ezmsg-event/", None),
+    "ezmsg.lsl": ("https://www.ezmsg.org/ezmsg-lsl/", None),
 }
 intersphinx_disabled_domains = ["std"]
 
