@@ -49,7 +49,22 @@ version-file = "src/ezmsg/learn/__version__.py"
 packages = ["src/ezmsg"]
 
 [tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 pythonpath = [
     "src",
     ".",
 ]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+# Exclude auto-generated files
+exclude = ["*/__version__.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["ezmsg.learn"]
+known-third-party = ["ezmsg"]
