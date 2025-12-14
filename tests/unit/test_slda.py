@@ -1,10 +1,12 @@
-import pytest
-import numpy as np
 import pickle
 import tempfile
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
+
+import numpy as np
+import pytest
 from ezmsg.util.messages.axisarray import AxisArray
-from ezmsg.learn.process.slda import SLDATransformer, SLDASettings
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
+
+from ezmsg.learn.process.slda import SLDASettings, SLDATransformer
 
 
 @pytest.fixture

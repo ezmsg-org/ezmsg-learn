@@ -1,8 +1,7 @@
-import pytest
-
 import numpy as np
+import pytest
+from ezmsg.sigproc.sampler import SampleMessage, SampleTriggerMessage
 from ezmsg.util.messages.axisarray import AxisArray, replace
-from ezmsg.sigproc.sampler import SampleTriggerMessage, SampleMessage
 
 from ezmsg.learn.process.adaptive_linear_regressor import (
     AdaptiveLinearRegressorTransformer,
@@ -34,9 +33,7 @@ def test_adaptive_linear_regressor(model_type: str):
         dims=["time", "ch"],
         axes={
             "time": AxisArray.TimeAxis(fs=fs, offset=0),
-            "ch": AxisArray.CoordinateAxis(
-                data=np.array([f"X{_}" for _ in range(n_ch)]), dims=["ch"]
-            ),
+            "ch": AxisArray.CoordinateAxis(data=np.array([f"X{_}" for _ in range(n_ch)]), dims=["ch"]),
         },
         key="signal",
     )

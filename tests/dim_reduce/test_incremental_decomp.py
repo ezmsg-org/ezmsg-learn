@@ -1,14 +1,14 @@
-import pytest
 import numpy as np
+import pytest
+from ezmsg.util.messages.axisarray import AxisArray, replace, slice_along_axis
 
-from ezmsg.util.messages.axisarray import AxisArray, slice_along_axis, replace
-from ezmsg.learn.dim_reduce.incremental_decomp import (
-    IncrementalDecompSettings,
-    IncrementalDecompTransformer,
-)
 from ezmsg.learn.dim_reduce.adaptive_decomp import (
     IncrementalPCATransformer,
     MiniBatchNMFTransformer,
+)
+from ezmsg.learn.dim_reduce.incremental_decomp import (
+    IncrementalDecompSettings,
+    IncrementalDecompTransformer,
 )
 
 
@@ -53,9 +53,7 @@ def gen_test_data(nmf: bool = False):
         dims=["time", "ch", "feature"],
         axes={
             "time": AxisArray.TimeAxis(fs=fs, offset=t0),
-            "ch": AxisArray.CoordinateAxis(
-                data=np.array(["Ch0"]), unit="label", dims=["ch"]
-            ),
+            "ch": AxisArray.CoordinateAxis(data=np.array(["Ch0"]), unit="label", dims=["ch"]),
         },
     )
 
@@ -162,9 +160,7 @@ class TestIncrementalDecompTransformer:
         if update_interval > 0:
             assert "windowing" in transformer._procs
         else:
-            assert (
-                "windowing" not in transformer._procs
-            )  # No windowing as update_interval=0
+            assert "windowing" not in transformer._procs  # No windowing as update_interval=0
 
     @pytest.mark.parametrize(
         "method, test_data_fixture",
@@ -188,9 +184,7 @@ class TestIncrementalDecompTransformer:
         elif method == "pca":
             settings_kwargs["whiten"] = False
 
-        transformer = IncrementalDecompTransformer(
-            settings=IncrementalDecompSettings(**settings_kwargs)
-        )
+        transformer = IncrementalDecompTransformer(settings=IncrementalDecompSettings(**settings_kwargs))
 
         # Spy on partial fit so we can check it was called exactly once.
         call_count = [0]
@@ -286,10 +280,7 @@ class TestIncrementalDecompTransformer:
             # Check the state
             assert "decomp" in state
             estim_state = state["decomp"][0].estimator
-            assert (
-                hasattr(estim_state, "components_")
-                and estim_state.components_ is not None
-            )
+            assert hasattr(estim_state, "components_") and estim_state.components_ is not None
 
         assert np.all(np.diff([msg.axes["time"].offset for msg in result]) > 0), (
             "Time axis offsets should be increasing"

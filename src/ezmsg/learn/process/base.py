@@ -1,7 +1,7 @@
 import inspect
 import json
-from pathlib import Path
 import typing
+from pathlib import Path
 
 import ezmsg.core as ez
 import torch
@@ -32,9 +32,7 @@ class ModelInitMixin:
         for key, value in config.items():
             if key in model_kwargs:
                 if model_kwargs[key] != value:
-                    ez.logger.warning(
-                        f"Config parameter {key} ({value}) differs from settings ({model_kwargs[key]})."
-                    )
+                    ez.logger.warning(f"Config parameter {key} ({value}) differs from settings ({model_kwargs[key]}).")
             else:
                 ez.logger.warning(f"Config parameter {key} is not in model_kwargs.")
             model_kwargs[key] = value
@@ -44,7 +42,8 @@ class ModelInitMixin:
         filtered_out = set(kwargs.keys()) - {k for k in valid_params if k != "self"}
         if filtered_out:
             ez.logger.warning(
-                f"Ignoring unexpected model parameters not accepted by {model_class.__name__} constructor: {sorted(filtered_out)}"
+                "Ignoring unexpected model parameters not accepted by"
+                f"{model_class.__name__} constructor: {sorted(filtered_out)}"
             )
         # Keep all valid parameters, including None values, so checkpoint-inferred values can overwrite them
         return {k: v for k, v in kwargs.items() if k in valid_params and k != "self"}
@@ -92,22 +91,16 @@ class ModelInitMixin:
                     config = json.load(f)
                 self._merge_config(model_kwargs, config)
             except Exception as e:
-                raise RuntimeError(
-                    f"Failed to load config from {config_path}: {str(e)}"
-                )
+                raise RuntimeError(f"Failed to load config from {config_path}: {str(e)}")
 
         # If a checkpoint file is provided, load it.
         if checkpoint_path:
             checkpoint_path = Path(checkpoint_path)
             if not checkpoint_path.exists():
                 ez.logger.error(f"Checkpoint path {checkpoint_path} does not exist.")
-                raise FileNotFoundError(
-                    f"Checkpoint path {checkpoint_path} does not exist."
-                )
+                raise FileNotFoundError(f"Checkpoint path {checkpoint_path} does not exist.")
             try:
-                checkpoint = torch.load(
-                    checkpoint_path, map_location=device, weights_only=weights_only
-                )
+                checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=weights_only)
 
                 if "config" in checkpoint:
                     config = checkpoint["config"]
@@ -126,20 +119,14 @@ class ModelInitMixin:
                     "infer_config_from_state_dict",
                     lambda _state_dict: {},  # Default to empty dict if not defined
                 )
-                infer_kwargs = (
-                    {"rnn_type": model_kwargs["rnn_type"]}
-                    if "rnn_type" in model_kwargs
-                    else {}
-                )
+                infer_kwargs = {"rnn_type": model_kwargs["rnn_type"]} if "rnn_type" in model_kwargs else {}
                 self._merge_config(
                     model_kwargs,
                     infer_config(state_dict, **infer_kwargs),
                 )
 
             except Exception as e:
-                raise RuntimeError(
-                    f"Failed to load checkpoint from {checkpoint_path}: {str(e)}"
-                )
+                raise RuntimeError(f"Failed to load checkpoint from {checkpoint_path}: {str(e)}")
 
         # Filter model_kwargs to only include valid parameters for the model class
         filtered_kwargs = self._filter_model_kwargs(model_class, model_kwargs)
@@ -156,18 +143,12 @@ class ModelInitMixin:
             if state_dict_prefix:
                 # If a prefix is provided, filter the state_dict keys
                 state_dict = {
-                    k[len(state_dict_prefix) :]: v
-                    for k, v in state_dict.items()
-                    if k.startswith(state_dict_prefix)
+                    k[len(state_dict_prefix) :]: v for k, v in state_dict.items() if k.startswith(state_dict_prefix)
                 }
             # Load the model weights
-            missing, unexpected = model.load_state_dict(
-                state_dict, strict=False, assign=True
-            )
+            missing, unexpected = model.load_state_dict(state_dict, strict=False, assign=True)
             if missing or unexpected:
-                ez.logger.warning(
-                    f"Partial load: missing keys: {missing}, unexpected keys: {unexpected}"
-                )
+                ez.logger.warning(f"Partial load: missing keys: {missing}, unexpected keys: {unexpected}")
 
         model.to(device)
         return model

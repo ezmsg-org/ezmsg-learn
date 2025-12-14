@@ -83,17 +83,12 @@ class RefitKalmanFilter:
         if Y_state.ndim != 2:
             raise ValueError(f"State vector must be 2D, got {Y_state.ndim}D")
 
-        if (
-            not hasattr(self, "H_observation_matrix")
-            or self.H_observation_matrix is None
-        ):
+        if not hasattr(self, "H_observation_matrix") or self.H_observation_matrix is None:
             raise ValueError("Model must be fitted before refitting")
 
         expected_states = self.H_observation_matrix.shape[1]
         if Y_state.shape[1] != expected_states:
-            raise ValueError(
-                f"State vector has {Y_state.shape[1]} dimensions, expected {expected_states}"
-            )
+            raise ValueError(f"State vector has {Y_state.shape[1]} dimensions, expected {expected_states}")
 
     def fit(self, X_train, y_train):
         """
@@ -121,15 +116,11 @@ class RefitKalmanFilter:
         X2 = X[1:, :]  # x_{t+1}
         X1 = X[:-1, :]  # x_t
         A = X2.T @ X1 @ np.linalg.inv(X1.T @ X1)  # Transition matrix
-        W = (
-            (X2 - X1 @ A.T).T @ (X2 - X1 @ A.T) / (n_samples - 1)
-        )  # Covariance of transition matrix
+        W = (X2 - X1 @ A.T).T @ (X2 - X1 @ A.T) / (n_samples - 1)  # Covariance of transition matrix
 
         # Calculate the measurement matrix (from x_t to z_t) using least-squares
         H = Z.T @ X @ np.linalg.inv(X.T @ X)  # Measurement matrix
-        Q = (
-            (Z - X @ H.T).T @ (Z - X @ H.T) / Z.shape[0]
-        )  # Covariance of measurement matrix
+        Q = (Z - X @ H.T).T @ (Z - X @ H.T) / Z.shape[0]  # Covariance of measurement matrix
 
         self.A_state_transition_matrix = A
         self.W_process_noise_covariance = W * self.process_noise_scale
@@ -179,15 +170,11 @@ class RefitKalmanFilter:
         if intention_velocity_indices is None:
             # Assume (x, y, vx, vy)
             vel_idx = 2 if Y_state.shape[1] >= 4 else 0
-            print(
-                f"[RefitKalmanFilter] No velocity index provided — defaulting to {vel_idx}"
-            )
+            print(f"[RefitKalmanFilter] No velocity index provided — defaulting to {vel_idx}")
         else:
             if isinstance(intention_velocity_indices, (list, tuple)):
                 if len(intention_velocity_indices) != 1:
-                    raise ValueError(
-                        "Only one velocity start index should be provided."
-                    )
+                    raise ValueError("Only one velocity start index should be provided.")
                 vel_idx = intention_velocity_indices[0]
             else:
                 vel_idx = intention_velocity_indices
@@ -198,18 +185,14 @@ class RefitKalmanFilter:
         else:
             intended_states = Y_state.copy()
             # Calculate intended velocities for each sample
-            for i, (state, pos, target) in enumerate(
-                zip(Y_state, cursor_positions, target_positions)
-            ):
+            for i, (state, pos, target) in enumerate(zip(Y_state, cursor_positions, target_positions)):
                 is_hold = hold_indices[i] if hold_indices is not None else False
 
                 if is_hold:
                     # During hold periods, intended velocity is zero
                     intended_states[i, vel_idx : vel_idx + 2] = 0.0
                     if i > 0:
-                        intended_states[i, :2] = intended_states[
-                            i - 1, :2
-                        ]  # Same position as previous
+                        intended_states[i, :2] = intended_states[i - 1, :2]  # Same position as previous
                 else:
                     # Calculate direction to target
                     to_target = target - pos
@@ -228,9 +211,7 @@ class RefitKalmanFilter:
                         intended_states[i, vel_idx : vel_idx + 2] = intended_velocity
                     # If target is very close, keep original velocity
                     else:
-                        intended_states[i, vel_idx : vel_idx + 2] = state[
-                            vel_idx : vel_idx + 2
-                        ]
+                        intended_states[i, vel_idx : vel_idx + 2] = state[vel_idx : vel_idx + 2]
 
         intended_states = np.array(intended_states)
         Z = np.array(X_neural)
@@ -258,7 +239,8 @@ class RefitKalmanFilter:
         Raises:
             LinAlgError: If the Riccati equation cannot be solved or matrix operations fail.
         """
-        ## TODO: consider removing non-steady-state for compute_gain() - non_steady_state updates will occur during predict() and update()
+        # TODO: consider removing non-steady-state for compute_gain() -
+        #  non_steady_state updates will occur during predict() and update()
         # if self.steady_state:
         try:
             # Try with original matrices
@@ -272,9 +254,7 @@ class RefitKalmanFilter:
                 self.P_state_covariance
                 @ self.H_observation_matrix.T
                 @ np.linalg.inv(
-                    self.H_observation_matrix
-                    @ self.P_state_covariance
-                    @ self.H_observation_matrix.T
+                    self.H_observation_matrix @ self.P_state_covariance @ self.H_observation_matrix.T
                     + self.Q_measurement_noise_covariance
                 )
             )
@@ -284,9 +264,7 @@ class RefitKalmanFilter:
             # W_reg = self.W_process_noise_covariance + 1e-7 * np.eye(
             # self.W_process_noise_covariance.shape[0]
             # )
-            Q_reg = self.Q_measurement_noise_covariance + 1e-7 * np.eye(
-                self.Q_measurement_noise_covariance.shape[0]
-            )
+            Q_reg = self.Q_measurement_noise_covariance + 1e-7 * np.eye(self.Q_measurement_noise_covariance.shape[0])
 
             try:
                 self.P_state_covariance = solve_discrete_are(
@@ -299,19 +277,14 @@ class RefitKalmanFilter:
                     self.P_state_covariance
                     @ self.H_observation_matrix.T
                     @ np.linalg.inv(
-                        self.H_observation_matrix
-                        @ self.P_state_covariance
-                        @ self.H_observation_matrix.T
-                        + Q_reg
+                        self.H_observation_matrix @ self.P_state_covariance @ self.H_observation_matrix.T + Q_reg
                     )
                 )
                 print("Warning: Used regularized matrices for DARE solution")
             except LinAlgError:
                 # Fallback to identity or manual initialization
                 print("Warning: DARE failed, using identity covariance")
-                self.P_state_covariance = np.eye(
-                    self.A_state_transition_matrix.shape[0]
-                )
+                self.P_state_covariance = np.eye(self.A_state_transition_matrix.shape[0])
 
         # else:
         #     n_states = self.A_state_transition_matrix.shape[0]
@@ -349,9 +322,7 @@ class RefitKalmanFilter:
             return x_predicted, None
         else:
             P_predicted = self.alpha_fading_memory**2 * (
-                self.A_state_transition_matrix
-                @ self.P_state_covariance
-                @ self.A_state_transition_matrix.T
+                self.A_state_transition_matrix @ self.P_state_covariance @ self.A_state_transition_matrix.T
                 + self.W_process_noise_covariance
             )
             return x_predicted, P_predicted
@@ -376,10 +347,7 @@ class RefitKalmanFilter:
 
         # Non-steady-state mode
         # System uncertainty
-        S = (
-            self.H_observation_matrix @ P_predicted @ self.H_observation_matrix.T
-            + self.Q_measurement_noise_covariance
-        )
+        S = self.H_observation_matrix @ P_predicted @ self.H_observation_matrix.T + self.Q_measurement_noise_covariance
 
         # Kalman gain
         K = P_predicted @ self.H_observation_matrix.T @ np.linalg.pinv(S)

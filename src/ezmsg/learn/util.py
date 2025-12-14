@@ -1,10 +1,11 @@
-from enum import Enum
-from dataclasses import dataclass, field
 import typing
+from dataclasses import dataclass, field
+from enum import Enum
 
-from ezmsg.util.messages.axisarray import AxisArray
-import sklearn.linear_model
 import river.linear_model
+import sklearn.linear_model
+from ezmsg.util.messages.axisarray import AxisArray
+
 # from sklearn.neural_network import MLPClassifier
 
 

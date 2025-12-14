@@ -1,20 +1,24 @@
+import os
 import pickle
 import tempfile
-import numpy as np
 from pathlib import Path
-import os
 
 import ezmsg.core as ez
-from ezmsg.util.messages.axisarray import AxisArray
+import numpy as np
+from ezmsg.sigproc.synth import Counter, CounterSettings
 from ezmsg.util.messagecodec import message_log
 from ezmsg.util.messagelogger import MessageLogger, MessageLoggerSettings
-from ezmsg.sigproc.synth import Counter, CounterSettings
-from ezmsg.util.terminate import TerminateOnTotal, TerminateOnTimeout
-from ezmsg.util.terminate import TerminateOnTotalSettings, TerminateOnTimeoutSettings
+from ezmsg.util.messages.axisarray import AxisArray
+from ezmsg.util.terminate import (
+    TerminateOnTimeout,
+    TerminateOnTimeoutSettings,
+    TerminateOnTotal,
+    TerminateOnTotalSettings,
+)
 
 from ezmsg.learn.process.refit_kalman import (
-    RefitKalmanFilterUnit,
     RefitKalmanFilterSettings,
+    RefitKalmanFilterUnit,
 )
 
 

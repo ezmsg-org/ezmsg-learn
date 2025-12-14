@@ -68,4 +68,4 @@ select = ["E", "F", "I", "W"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["ezmsg.learn"]
-known-third-party = ["ezmsg"]
+known-third-party = ["ezmsg", "ezmsg.baseproc", "ezmsg.sigproc"]
