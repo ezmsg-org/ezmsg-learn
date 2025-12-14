@@ -1,14 +1,14 @@
 import typing
 
-from sklearn.decomposition import IncrementalPCA, MiniBatchNMF
-import numpy as np
 import ezmsg.core as ez
-from ezmsg.sigproc.base import (
-    processor_state,
+import numpy as np
+from ezmsg.baseproc import (
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
+    processor_state,
 )
 from ezmsg.util.messages.axisarray import AxisArray, replace
+from sklearn.decomposition import IncrementalPCA, MiniBatchNMF
 
 
 class AdaptiveDecompSettings(ez.Settings):
@@ -23,15 +23,11 @@ class AdaptiveDecompState:
     estimator: typing.Any = None
 
 
-EstimatorType = typing.TypeVar(
-    "EstimatorType", bound=typing.Union[IncrementalPCA, MiniBatchNMF]
-)
+EstimatorType = typing.TypeVar("EstimatorType", bound=typing.Union[IncrementalPCA, MiniBatchNMF])
 
 
 class AdaptiveDecompTransformer(
-    BaseAdaptiveTransformer[
-        AdaptiveDecompSettings, AxisArray, AxisArray, AdaptiveDecompState
-    ],
+    BaseAdaptiveTransformer[AdaptiveDecompSettings, AxisArray, AxisArray, AdaptiveDecompState],
     typing.Generic[EstimatorType],
 ):
     """
@@ -80,9 +76,7 @@ class AdaptiveDecompTransformer(
             it_ax_ix = message.get_axis_idx(iter_axis)
             # Remaining axes are to be treated independently
             off_targ_axes = [
-                _
-                for _ in (message.dims[:it_ax_ix] + message.dims[it_ax_ix + 1 :])
-                if _ != self.settings.axis
+                _ for _ in (message.dims[:it_ax_ix] + message.dims[it_ax_ix + 1 :]) if _ != self.settings.axis
             ]
         self._state.axis_groups = iter_axis, targ_axes, off_targ_axes
 
@@ -152,9 +146,7 @@ class AdaptiveDecompTransformer(
 
         # Transform data
         if hasattr(self._state.estimator, "components_"):
-            decomp_dat = self._state.estimator.transform(in_dat).reshape(
-                (-1,) + self._state.template.data.shape[1:]
-            )
+            decomp_dat = self._state.estimator.transform(in_dat).reshape((-1,) + self._state.template.data.shape[1:])
             replace_kwargs["data"] = decomp_dat
 
         return replace(self._state.template, **replace_kwargs)
@@ -241,9 +233,7 @@ class MiniBatchNMFTransformer(AdaptiveDecompTransformer[MiniBatchNMF]):
     pass
 
 
-SettingsType = typing.TypeVar(
-    "SettingsType", bound=typing.Union[IncrementalPCASettings, MiniBatchNMFSettings]
-)
+SettingsType = typing.TypeVar("SettingsType", bound=typing.Union[IncrementalPCASettings, MiniBatchNMFSettings])
 TransformerType = typing.TypeVar(
     "TransformerType",
     bound=typing.Union[IncrementalPCATransformer, MiniBatchNMFTransformer],

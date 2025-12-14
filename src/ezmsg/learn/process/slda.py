@@ -2,10 +2,10 @@ import typing
 
 import ezmsg.core as ez
 import numpy as np
-from ezmsg.sigproc.base import (
+from ezmsg.baseproc import (
     BaseStatefulTransformer,
-    processor_state,
     BaseTransformerUnit,
+    processor_state,
 )
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
@@ -25,9 +25,7 @@ class SLDAState:
     out_template: typing.Optional[ClassifierMessage] = None
 
 
-class SLDATransformer(
-    BaseStatefulTransformer[SLDASettings, AxisArray, ClassifierMessage, SLDAState]
-):
+class SLDATransformer(BaseStatefulTransformer[SLDASettings, AxisArray, ClassifierMessage, SLDAState]):
     def _reset_state(self, message: AxisArray) -> None:
         if self.settings.settings_path[-4:] == ".mat":
             # Expects a very specific format from a specific project. Not for general use.
@@ -67,9 +65,7 @@ class SLDATransformer(
             dims=[self.settings.axis, "classes"],
             axes={
                 self.settings.axis: message.axes[self.settings.axis],
-                "classes": AxisArray.CoordinateAxis(
-                    data=np.array(out_labels), dims=["classes"]
-                ),
+                "classes": AxisArray.CoordinateAxis(data=np.array(out_labels), dims=["classes"]),
             },
             labels=out_labels,
             key=message.key,
@@ -80,10 +76,7 @@ class SLDATransformer(
         X = np.moveaxis(message.data, samp_ax_idx, 0)
 
         if X.shape[0]:
-            if (
-                isinstance(self.settings.settings_path, str)
-                and self.settings.settings_path[-4:] == ".mat"
-            ):
+            if isinstance(self.settings.settings_path, str) and self.settings.settings_path[-4:] == ".mat":
                 # Assumes F-contiguous weights
                 pred_probas = []
                 for samp in X:
@@ -113,7 +106,5 @@ class SLDATransformer(
             return self.state.out_template
 
 
-class SLDA(
-    BaseTransformerUnit[SLDASettings, AxisArray, ClassifierMessage, SLDATransformer]
-):
+class SLDA(BaseTransformerUnit[SLDASettings, AxisArray, ClassifierMessage, SLDATransformer]):
     SETTINGS = SLDASettings

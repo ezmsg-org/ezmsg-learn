@@ -1,14 +1,14 @@
 import typing
 
-import numpy as np
 import ezmsg.core as ez
-from ezmsg.util.messages.axisarray import AxisArray, replace
-from ezmsg.sigproc.base import (
-    CompositeProcessor,
+import numpy as np
+from ezmsg.baseproc import (
     BaseStatefulProcessor,
     BaseTransformerUnit,
+    CompositeProcessor,
 )
 from ezmsg.sigproc.window import WindowTransformer
+from ezmsg.util.messages.axisarray import AxisArray, replace
 
 from .adaptive_decomp import (
     IncrementalPCASettings,
@@ -36,9 +36,7 @@ class IncrementalDecompSettings(ez.Settings):
     forget_factor: float = 0.7
 
 
-class IncrementalDecompTransformer(
-    CompositeProcessor[IncrementalDecompSettings, AxisArray, AxisArray]
-):
+class IncrementalDecompTransformer(CompositeProcessor[IncrementalDecompSettings, AxisArray, AxisArray]):
     """
     Automates usage of IncrementalPCATransformer and MiniBatchNMFTransformer by using a WindowTransformer
     to extract training samples then calls partial_fit on the decomposition transformer.
@@ -125,15 +123,11 @@ class IncrementalDecompTransformer(
             # If the estimator has not been trained once, train it with the first message
             self._procs["decomp"].partial_fit(message)
         elif "windowing" in self._procs:
-            state["windowing"], train_msg = self._procs["windowing"].stateful_op(
-                state.get("windowing", None), message
-            )
+            state["windowing"], train_msg = self._procs["windowing"].stateful_op(state.get("windowing", None), message)
             self._partial_fit_windowed(train_msg)
 
         # Process the incoming message
-        state["decomp"], result = self._procs["decomp"].stateful_op(
-            state.get("decomp", None), message
-        )
+        state["decomp"], result = self._procs["decomp"].stateful_op(state.get("decomp", None), message)
 
         return state, result
 
@@ -174,8 +168,6 @@ class IncrementalDecompTransformer(
 
 
 class IncrementalDecompUnit(
-    BaseTransformerUnit[
-        IncrementalDecompSettings, AxisArray, AxisArray, IncrementalDecompTransformer
-    ]
+    BaseTransformerUnit[IncrementalDecompSettings, AxisArray, AxisArray, IncrementalDecompTransformer]
 ):
     SETTINGS = IncrementalDecompSettings

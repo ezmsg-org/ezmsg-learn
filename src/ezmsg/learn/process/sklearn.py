@@ -5,7 +5,7 @@ import typing
 import ezmsg.core as ez
 import numpy as np
 import pandas as pd
-from ezmsg.sigproc.base import (
+from ezmsg.baseproc import (
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
     processor_state,
@@ -45,11 +45,7 @@ class SklearnModelState:
     chan_ax: AxisArray.CoordinateAxis | None = None
 
 
-class SklearnModelProcessor(
-    BaseAdaptiveTransformer[
-        SklearnModelSettings, AxisArray, AxisArray, SklearnModelState
-    ]
-):
+class SklearnModelProcessor(BaseAdaptiveTransformer[SklearnModelSettings, AxisArray, AxisArray, SklearnModelState]):
     """
     Processor that wraps a scikit-learn, River, or HMMLearn model for use in the ezmsg framework.
 
@@ -115,9 +111,7 @@ class SklearnModelProcessor(
             if hasattr(self._state.model, "n_features_in_"):
                 expected = self._state.model.n_features_in_
                 if expected != n_input:
-                    raise ValueError(
-                        f"Model expects {expected} features, but got {n_input}"
-                    )
+                    raise ValueError(f"Model expects {expected} features, but got {n_input}")
         else:
             # No checkpoint, initialize from scratch
             self._init_model()
@@ -133,18 +127,10 @@ class SklearnModelProcessor(
                 kwargs["classes"] = self.settings.partial_fit_classes
             self._state.model.partial_fit(X, y, **kwargs)
         elif hasattr(self._state.model, "learn_many"):
-            df_X = pd.DataFrame(
-                {
-                    k: v
-                    for k, v in zip(
-                        message.sample.axes["ch"].data, message.sample.data.T
-                    )
-                }
-            )
+            df_X = pd.DataFrame({k: v for k, v in zip(message.sample.axes["ch"].data, message.sample.data.T)})
             name = (
                 message.trigger.value.axes["ch"].data[0]
-                if hasattr(message.trigger.value, "axes")
-                and "ch" in message.trigger.value.axes
+                if hasattr(message.trigger.value, "axes") and "ch" in message.trigger.value.axes
                 else "target"
             )
             ser_y = pd.Series(
@@ -158,9 +144,7 @@ class SklearnModelProcessor(
                 features = {f"f{i}": xi[i] for i in range(len(xi))}
                 self._state.model.learn_one(features, yi)
         else:
-            raise NotImplementedError(
-                "Model does not support partial_fit or learn_many"
-            )
+            raise NotImplementedError("Model does not support partial_fit or learn_many")
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
         if self._state.model is None:
@@ -192,9 +176,7 @@ class SklearnModelProcessor(
 
     def _process(self, message: AxisArray) -> AxisArray:
         if self._state.model is None:
-            raise RuntimeError(
-                "Model has not been fit yet. Call `fit()` or `partial_fit()` before processing."
-            )
+            raise RuntimeError("Model has not been fit yet. Call `fit()` or `partial_fit()` before processing.")
         X = message.data
         original_shape = X.shape
         n_input = X.shape[message.get_axis_idx("ch")]
@@ -204,9 +186,7 @@ class SklearnModelProcessor(
         if hasattr(self._state.model, "n_features_in_"):
             expected = self._state.model.n_features_in_
             if expected != n_input:
-                raise ValueError(
-                    f"Model expects {expected} features, but got {n_input}"
-                )
+                raise ValueError(f"Model expects {expected} features, but got {n_input}")
 
         if hasattr(self._state.model, "predict"):
             y_pred = self._state.model.predict(X)
@@ -216,14 +196,7 @@ class SklearnModelProcessor(
             y_pred = np.array(list(y_pred))
         elif hasattr(self._state.model, "predict_one"):
             # river's random forest does not support predict_many
-            y_pred = np.array(
-                [
-                    self._state.model.predict_one(
-                        {f"f{i}": xi[i] for i in range(len(xi))}
-                    )
-                    for xi in X
-                ]
-            )
+            y_pred = np.array([self._state.model.predict_one({f"f{i}": xi[i] for i in range(len(xi))}) for xi in X])
         else:
             raise NotImplementedError("Model does not support predict or predict_many")
 
@@ -235,9 +208,7 @@ class SklearnModelProcessor(
         y_pred = y_pred.reshape(output_shape)
 
         if self._state.chan_ax is None:
-            self._state.chan_ax = AxisArray.CoordinateAxis(
-                data=np.arange(output_shape[1]), dims=["ch"]
-            )
+            self._state.chan_ax = AxisArray.CoordinateAxis(data=np.arange(output_shape[1]), dims=["ch"])
 
         return replace(
             message,
@@ -246,11 +217,7 @@ class SklearnModelProcessor(
         )
 
 
-class SklearnModelUnit(
-    BaseAdaptiveTransformerUnit[
-        SklearnModelSettings, AxisArray, AxisArray, SklearnModelProcessor
-    ]
-):
+class SklearnModelUnit(BaseAdaptiveTransformerUnit[SklearnModelSettings, AxisArray, AxisArray, SklearnModelProcessor]):
     """
     Unit wrapper for the `SklearnModelProcessor`.
 
