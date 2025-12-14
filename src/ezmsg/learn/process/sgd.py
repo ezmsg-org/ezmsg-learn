@@ -2,8 +2,8 @@ import typing
 
 import ezmsg.core as ez
 import numpy as np
+from ezmsg.baseproc import GenAxisArray
 from ezmsg.sigproc.sampler import SampleMessage
-from ezmsg.sigproc.base import GenAxisArray
 from ezmsg.util.generator import consumer
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace

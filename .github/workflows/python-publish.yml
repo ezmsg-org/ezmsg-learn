@@ -1,4 +1,4 @@
-name: Upload Python Package - ezmsg-learn
+name: Upload Python Package
 
 on:
   release:

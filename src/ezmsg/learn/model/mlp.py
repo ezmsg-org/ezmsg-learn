@@ -27,11 +27,12 @@ class MLP(torch.nn.Module):
         Initialize the MLP model.
         Args:
             input_size (int): The size of the input features.
-            hidden_size (int | list[int]): The sizes of the hidden layers. If a list, num_layers must be None or the length
-                of the list. If a single integer, num_layers must be specified and determines the number of hidden layers.
+            hidden_size (int | list[int]): The sizes of the hidden layers. If a list, num_layers must be None or the
+                length of the list. If a single integer, num_layers must be specified and determines the number of
+                hidden layers.
             num_layers (int, optional): The number of hidden layers. Length of hidden_size if None. Default is None.
-            output_heads (int | dict[str, int], optional): Number of output features or classes if single head output or a
-                dictionary mapping head names to output sizes if multi-head output. Default is 2 (single head).
+            output_heads (int | dict[str, int], optional): Number of output features or classes if single head output
+                or a dictionary mapping head names to output sizes if multi-head output. Default is 2 (single head).
             norm_layer (str, optional): A normalization layer to be applied after each linear layer. Default is None.
                 Common choices are "BatchNorm1d" or "LayerNorm".
             activation_layer (str, optional): An activation function to be applied after each normalization
@@ -43,18 +44,14 @@ class MLP(torch.nn.Module):
         super().__init__()
         if isinstance(hidden_size, int):
             if num_layers is None:
-                raise ValueError(
-                    "If hidden_size is an integer, num_layers must be specified."
-                )
+                raise ValueError("If hidden_size is an integer, num_layers must be specified.")
             hidden_size = [hidden_size] * num_layers
         if len(hidden_size) == 0:
             raise ValueError("hidden_size must have at least one element")
         if any(not isinstance(x, int) for x in hidden_size):
             raise ValueError("hidden_size must contain only integers")
         if num_layers is not None and len(hidden_size) != num_layers:
-            raise ValueError(
-                "Length of hidden_size must match num_layers if num_layers is specified."
-            )
+            raise ValueError("Length of hidden_size must match num_layers if num_layers is specified.")
 
         params = {} if inplace is None else {"inplace": inplace}
 
@@ -84,10 +81,7 @@ class MLP(torch.nn.Module):
         if isinstance(output_heads, int):
             output_heads = {"output": output_heads}
         self.heads = torch.nn.ModuleDict(
-            {
-                name: torch.nn.Linear(hidden_size[-1], output_size)
-                for name, output_size in output_heads.items()
-            }
+            {name: torch.nn.Linear(hidden_size[-1], output_size) for name, output_size in output_heads.items()}
         )
 
     @classmethod

@@ -1,14 +1,14 @@
-import pytest
 import numpy as np
+import pytest
+from ezmsg.util.messages.axisarray import AxisArray
 from numpy.testing import assert_array_almost_equal
 from sklearn.decomposition import IncrementalPCA, MiniBatchNMF
 
-from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.learn.dim_reduce.adaptive_decomp import (
-    IncrementalPCATransformer,
     IncrementalPCASettings,
-    MiniBatchNMFTransformer,
+    IncrementalPCATransformer,
     MiniBatchNMFSettings,
+    MiniBatchNMFTransformer,
 )
 
 
@@ -33,12 +33,8 @@ def pca_test_data():
         data=data.reshape(n_samples, 1, n_features),
         dims=["time", "channel", "feature"],
         axes={
-            "time": AxisArray.CoordinateAxis(
-                data=np.arange(n_samples).astype(float), dims=["time"], unit="s"
-            ),
-            "channel": AxisArray.CoordinateAxis(
-                data=np.array(["ch1"]), dims=["channel"], unit="channel"
-            ),
+            "time": AxisArray.CoordinateAxis(data=np.arange(n_samples).astype(float), dims=["time"], unit="s"),
+            "channel": AxisArray.CoordinateAxis(data=np.array(["ch1"]), dims=["channel"], unit="channel"),
             "feature": AxisArray.CoordinateAxis(
                 data=np.arange(n_features).astype(str), dims=["feature"], unit="feature"
             ),
@@ -73,12 +69,8 @@ def nmf_test_data():
         data=data.reshape(n_samples, 1, n_features),
         dims=["time", "channel", "feature"],
         axes={
-            "time": AxisArray.CoordinateAxis(
-                data=np.arange(n_samples).astype(float), dims=["time"], unit="s"
-            ),
-            "channel": AxisArray.CoordinateAxis(
-                data=np.array(["ch1"]), dims=["channel"], unit="channel"
-            ),
+            "time": AxisArray.CoordinateAxis(data=np.arange(n_samples).astype(float), dims=["time"], unit="s"),
+            "channel": AxisArray.CoordinateAxis(data=np.array(["ch1"]), dims=["channel"], unit="channel"),
             "feature": AxisArray.CoordinateAxis(
                 data=np.arange(n_features).astype(str), dims=["feature"], unit="feature"
             ),
@@ -99,9 +91,7 @@ class TestIncrementalPCATransformer:
     def test_initialization(self, pca_test_data):
         """Test that the transformer initializes correctly"""
         n_components = pca_test_data["n_components"]
-        settings = IncrementalPCASettings(
-            axis="feature", n_components=n_components, whiten=False
-        )
+        settings = IncrementalPCASettings(axis="feature", n_components=n_components, whiten=False)
         transformer = IncrementalPCATransformer(settings=settings)
 
         assert isinstance(transformer._state.estimator, IncrementalPCA)
@@ -174,9 +164,7 @@ class TestMiniBatchNMFTransformer:
     def test_initialization(self, nmf_test_data):
         """Test that the transformer initializes correctly"""
         n_components = nmf_test_data["n_components"]
-        settings = MiniBatchNMFSettings(
-            axis="feature", n_components=n_components, max_iter=100, tol=1e-4
-        )
+        settings = MiniBatchNMFSettings(axis="feature", n_components=n_components, max_iter=100, tol=1e-4)
         transformer = MiniBatchNMFTransformer(settings=settings)
 
         assert isinstance(transformer._state.estimator, MiniBatchNMF)

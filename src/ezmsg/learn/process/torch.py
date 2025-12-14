@@ -4,15 +4,15 @@ import typing
 import ezmsg.core as ez
 import numpy as np
 import torch
-from ezmsg.sigproc.base import (
+from ezmsg.baseproc import (
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
     BaseStatefulTransformer,
     BaseTransformerUnit,
     processor_state,
 )
+from ezmsg.baseproc.util.profile import profile_subpub
 from ezmsg.sigproc.sampler import SampleMessage
-from ezmsg.sigproc.util.profile import profile_subpub
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
@@ -113,9 +113,7 @@ class TorchProcessorMixin:
         module = importlib.import_module(module_path)
         return getattr(module, class_name)
 
-    def _infer_output_sizes(
-        self: P, model: torch.nn.Module, n_input: int
-    ) -> dict[str, int]:
+    def _infer_output_sizes(self: P, model: torch.nn.Module, n_input: int) -> dict[str, int]:
         """Simple inference to get output channel size. Override if needed."""
         dummy_input = torch.zeros(1, 1, n_input, device=self._state.device)
         with torch.no_grad():
@@ -133,9 +131,7 @@ class TorchProcessorMixin:
             weight_decay=self.settings.weight_decay,
         )
         self._state.scheduler = (
-            torch.optim.lr_scheduler.ExponentialLR(
-                self._state.optimizer, gamma=self.settings.scheduler_gamma
-            )
+            torch.optim.lr_scheduler.ExponentialLR(self._state.optimizer, gamma=self.settings.scheduler_gamma)
             if self.settings.scheduler_gamma > 0.0
             else None
         )
@@ -191,9 +187,7 @@ class TorchProcessorMixin:
             output_messages = [
                 replace(
                     message,
-                    data=value.cpu().numpy().squeeze(0)
-                    if added_batch_dim
-                    else value.cpu().numpy(),
+                    data=value.cpu().numpy().squeeze(0) if added_batch_dim else value.cpu().numpy(),
                     axes={
                         **message.axes,
                         "ch": self._state.chan_ax[key],
@@ -207,9 +201,7 @@ class TorchProcessorMixin:
         return [
             replace(
                 message,
-                data=output.cpu().numpy().squeeze(0)
-                if added_batch_dim
-                else output.cpu().numpy(),
+                data=output.cpu().numpy().squeeze(0) if added_batch_dim else output.cpu().numpy(),
                 axes={
                     **message.axes,
                     "ch": self._state.chan_ax["output"],
@@ -229,11 +221,7 @@ class TorchProcessorMixin:
         else:
             model_kwargs["input_size"] = n_input
 
-        device = (
-            "cuda"
-            if torch.cuda.is_available()
-            else ("mps" if torch.mps.is_available() else "cpu")
-        )
+        device = "cuda" if torch.cuda.is_available() else ("mps" if torch.mps.is_available() else "cpu")
         device = self.settings.device or device
         self._state.device = torch.device(device)
 
@@ -260,9 +248,7 @@ class TorchProcessorMixin:
 
 
 class TorchSimpleProcessor(
-    BaseStatefulTransformer[
-        TorchSimpleSettings, AxisArray, AxisArray, TorchSimpleState
-    ],
+    BaseStatefulTransformer[TorchSimpleSettings, AxisArray, AxisArray, TorchSimpleState],
     TorchProcessorMixin,
     ModelInitMixin,
 ):
@@ -339,9 +325,7 @@ class TorchModelProcessor(
             for key in y_targ.keys():
                 loss_fn = loss_fns.get(key)
                 if loss_fn is None:
-                    raise ValueError(
-                        f"Loss function for key '{key}' is not defined in settings."
-                    )
+                    raise ValueError(f"Loss function for key '{key}' is not defined in settings.")
                 if isinstance(loss_fn, torch.nn.CrossEntropyLoss):
                     loss = loss_fn(y_pred[key].permute(0, 2, 1), y_targ[key].long())
                 else:

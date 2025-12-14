@@ -3,7 +3,7 @@ from pathlib import Path
 
 import ezmsg.core as ez
 import numpy as np
-from ezmsg.sigproc.base import (
+from ezmsg.baseproc import (
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
     processor_state,
@@ -302,9 +302,7 @@ class RefitKalmanFilterProcessor(
         values = message.trigger.value
 
         if not isinstance(values, dict) or "Y_state" not in values:
-            raise ValueError(
-                "partial_fit expects trigger.value to include at least 'Y_state'."
-            )
+            raise ValueError("partial_fit expects trigger.value to include at least 'Y_state'.")
 
         kwargs = {
             "X_neural": X,
@@ -319,9 +317,7 @@ class RefitKalmanFilterProcessor(
             "hold_flags",
         ]:
             if key in values and values[key] is not None:
-                kwargs[key if key != "hold_flags" else "hold_indices"] = np.array(
-                    values[key]
-                )
+                kwargs[key if key != "hold_flags" else "hold_indices"] = np.array(values[key])
 
         # Call model refit
         self._state.model.refit(**kwargs)

@@ -1,17 +1,17 @@
 from dataclasses import field
 
-import numpy as np
-from sklearn.linear_model._base import LinearModel
 import ezmsg.core as ez
-from ezmsg.sigproc.base import (
-    processor_state,
+import numpy as np
+from ezmsg.baseproc import (
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
+    processor_state,
 )
-from ezmsg.util.messages.axisarray import AxisArray, replace
 from ezmsg.sigproc.sampler import SampleMessage
+from ezmsg.util.messages.axisarray import AxisArray, replace
+from sklearn.linear_model._base import LinearModel
 
-from ..util import get_regressor, StaticLinearRegressor, RegressorType
+from ..util import RegressorType, StaticLinearRegressor, get_regressor
 
 
 class LinearRegressorSettings(ez.Settings):
@@ -27,9 +27,7 @@ class LinearRegressorState:
 
 
 class LinearRegressorTransformer(
-    BaseAdaptiveTransformer[
-        LinearRegressorSettings, AxisArray, AxisArray, LinearRegressorState
-    ]
+    BaseAdaptiveTransformer[LinearRegressorSettings, AxisArray, AxisArray, LinearRegressorState]
 ):
     """
     Linear regressor.
@@ -47,9 +45,7 @@ class LinearRegressorTransformer(
             with open(self.settings.settings_path, "rb") as f:
                 self.state.model = pickle.load(f)
         else:
-            regressor_klass = get_regressor(
-                RegressorType.STATIC, self.settings.model_type
-            )
+            regressor_klass = get_regressor(RegressorType.STATIC, self.settings.model_type)
             self.state.model = regressor_klass(**self.settings.model_kwargs)
 
     def _reset_state(self, message: AxisArray) -> None:

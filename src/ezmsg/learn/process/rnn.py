@@ -3,9 +3,9 @@ import typing
 import ezmsg.core as ez
 import numpy as np
 import torch
-from ezmsg.sigproc.base import BaseAdaptiveTransformer, BaseAdaptiveTransformerUnit
+from ezmsg.baseproc import BaseAdaptiveTransformer, BaseAdaptiveTransformerUnit
+from ezmsg.baseproc.util.profile import profile_subpub
 from ezmsg.sigproc.sampler import SampleMessage
-from ezmsg.sigproc.util.profile import profile_subpub
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
@@ -47,9 +47,7 @@ class RNNProcessor(
     TorchProcessorMixin,
     ModelInitMixin,
 ):
-    def _infer_output_sizes(
-        self, model: torch.nn.Module, n_input: int
-    ) -> dict[str, int]:
+    def _infer_output_sizes(self, model: torch.nn.Module, n_input: int) -> dict[str, int]:
         """Simple inference to get output channel size."""
         dummy_input = torch.zeros(1, 50, n_input, device=self._state.device)
         with torch.no_grad():
@@ -78,9 +76,7 @@ class RNNProcessor(
                 preserve_state = True
             elif "time" not in axes or "win" not in axes:
                 # Default fallback
-                ez.logger.warning(
-                    "Missing 'time' or 'win' axis for auto preserve-state logic. Defaulting to reset."
-                )
+                ez.logger.warning("Missing 'time' or 'win' axis for auto preserve-state logic. Defaulting to reset.")
                 preserve_state = False
             else:
                 # Calculate stride between windows (assuming uniform spacing)
@@ -89,9 +85,7 @@ class RNNProcessor(
                 time_len = message.data.shape[message.get_axis_idx("time")]
                 gain = getattr(axes["time"], "gain", None)
                 if gain is None:
-                    ez.logger.warning(
-                        "Time axis gain not found, using default gain of 1.0."
-                    )
+                    ez.logger.warning("Time axis gain not found, using default gain of 1.0.")
                     gain = 1.0  # fallback default
                 win_len = time_len * gain
                 # Determine if we should preserve state
@@ -102,15 +96,9 @@ class RNNProcessor(
             self.reset_hidden(batch_size)
         else:
             # If preserving state, only reset if batch size isn't 1
-            hx_batch_size = (
-                self._state.hx[0].shape[1]
-                if isinstance(self._state.hx, tuple)
-                else self._state.hx.shape[1]
-            )
+            hx_batch_size = self._state.hx[0].shape[1] if isinstance(self._state.hx, tuple) else self._state.hx.shape[1]
             if hx_batch_size != 1:
-                ez.logger.debug(
-                    f"Resetting hidden state due to batch size mismatch (hx: {hx_batch_size}, new: 1)"
-                )
+                ez.logger.debug(f"Resetting hidden state due to batch size mismatch (hx: {hx_batch_size}, new: 1)")
                 self.reset_hidden(1)
         return preserve_state
 
@@ -119,9 +107,7 @@ class RNNProcessor(
         if not isinstance(x, torch.Tensor):
             x = torch.tensor(
                 x,
-                dtype=torch.float32
-                if self.settings.single_precision
-                else torch.float64,
+                dtype=torch.float32 if self.settings.single_precision else torch.float64,
                 device=self._state.device,
             )
 
@@ -143,18 +129,11 @@ class RNNProcessor(
                             y_data[key] = []
                         y_data[key].append(out.cpu().numpy())
                 # Concatenate outputs for each key
-                y_data = {
-                    key: np.concatenate(outputs, axis=0)
-                    for key, outputs in y_data.items()
-                }
+                y_data = {key: np.concatenate(outputs, axis=0) for key, outputs in y_data.items()}
             else:
                 y, self._state.hx = self._state.model(x, hx=self._state.hx)
                 y_data = {
-                    key: (
-                        out.cpu().numpy().squeeze(0)
-                        if added_batch_dim
-                        else out.cpu().numpy()
-                    )
+                    key: (out.cpu().numpy().squeeze(0) if added_batch_dim else out.cpu().numpy())
                     for key, out in y.items()
                 }
 

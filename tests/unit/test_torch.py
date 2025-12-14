@@ -1,6 +1,6 @@
-from pathlib import Path
 import os
 import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -28,9 +28,7 @@ class DummyModel(torch.nn.Module):
     @classmethod
     def infer_config_from_state_dict(cls, state_dict):
         weight = (
-            state_dict["linear.weight"]
-            if isinstance(state_dict, dict)
-            else state_dict.state_dict()["linear.weight"]
+            state_dict["linear.weight"] if isinstance(state_dict, dict) else state_dict.state_dict()["linear.weight"]
         )
         out_features, in_features = weight.shape
         return {
@@ -139,9 +137,7 @@ def test_checkpoint_loading_and_weights(batch_message):
     # Check all keys and values
     for key in model_state.keys():
         assert key in loaded_state, f"Key '{key}' missing in loaded model state"
-        assert torch.allclose(model_state[key], loaded_state[key], atol=1e-6), (
-            f"Mismatch for key '{key}'"
-        )
+        assert torch.allclose(model_state[key], loaded_state[key], atol=1e-6), f"Mismatch for key '{key}'"
 
     # Clean up checkpoint file
     for _ in range(5):

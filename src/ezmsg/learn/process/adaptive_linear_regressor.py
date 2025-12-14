@@ -1,17 +1,17 @@
 from dataclasses import field
 
+import ezmsg.core as ez
 import numpy as np
 import pandas as pd
-import river.optim
 import river.linear_model
+import river.optim
 import sklearn.base
-import ezmsg.core as ez
-from ezmsg.sigproc.sampler import SampleMessage
-from ezmsg.sigproc.base import (
-    processor_state,
+from ezmsg.baseproc import (
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
+    processor_state,
 )
+from ezmsg.sigproc.sampler import SampleMessage
 from ezmsg.util.messages.axisarray import AxisArray, replace
 
 from ..util import AdaptiveLinearRegressor, RegressorType, get_regressor
@@ -39,9 +39,7 @@ class AdaptiveLinearRegressorTransformer(
 ):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.settings = replace(
-            self.settings, model_type=AdaptiveLinearRegressor(self.settings.model_type)
-        )
+        self.settings = replace(self.settings, model_type=AdaptiveLinearRegressor(self.settings.model_type))
         b_river = self.settings.model_type in [
             AdaptiveLinearRegressor.LINEAR,
             AdaptiveLinearRegressor.LOGISTIC,
@@ -49,9 +47,7 @@ class AdaptiveLinearRegressorTransformer(
         if b_river:
             self.settings.model_kwargs["l2"] = self.settings.model_kwargs.get("l2", 0.0)
             if "learn_rate" in self.settings.model_kwargs:
-                self.settings.model_kwargs["optimizer"] = river.optim.SGD(
-                    self.settings.model_kwargs.pop("learn_rate")
-                )
+                self.settings.model_kwargs["optimizer"] = river.optim.SGD(self.settings.model_kwargs.pop("learn_rate"))
 
         if self.settings.settings_path is not None:
             # Load model from file
@@ -69,9 +65,7 @@ class AdaptiveLinearRegressorTransformer(
                 print("TODO: Override sklearn model with kwargs")
         else:
             # Build model from scratch.
-            regressor_klass = get_regressor(
-                RegressorType.ADAPTIVE, self.settings.model_type
-            )
+            regressor_klass = get_regressor(RegressorType.ADAPTIVE, self.settings.model_type)
             self.state.model = regressor_klass(**self.settings.model_kwargs)
 
     def _hash_message(self, message: AxisArray) -> int:
@@ -92,14 +86,7 @@ class AdaptiveLinearRegressorTransformer(
             AdaptiveLinearRegressor.LINEAR,
             AdaptiveLinearRegressor.LOGISTIC,
         ]:
-            x = pd.DataFrame.from_dict(
-                {
-                    k: v
-                    for k, v in zip(
-                        message.sample.axes["ch"].data, message.sample.data.T
-                    )
-                }
-            )
+            x = pd.DataFrame.from_dict({k: v for k, v in zip(message.sample.axes["ch"].data, message.sample.data.T)})
             y = pd.Series(
                 data=message.trigger.value.data[:, 0],
                 name=message.trigger.value.axes["ch"].data[0],
@@ -127,9 +114,7 @@ class AdaptiveLinearRegressorTransformer(
                 AdaptiveLinearRegressor.LOGISTIC,
             ]:
                 # convert msg_in.data to something appropriate for river
-                x = pd.DataFrame.from_dict(
-                    {k: v for k, v in zip(message.axes["ch"].data, message.data.T)}
-                )
+                x = pd.DataFrame.from_dict({k: v for k, v in zip(message.axes["ch"].data, message.data.T)})
                 preds = self.state.model.predict_many(x).values
             else:
                 preds = self.state.model.predict(message.data)

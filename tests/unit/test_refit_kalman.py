@@ -1,13 +1,14 @@
 import pickle
 import tempfile
 from pathlib import Path
+
 import numpy as np
 import pytest
 from ezmsg.util.messages.axisarray import AxisArray
 
 from ezmsg.learn.process.refit_kalman import (
-    RefitKalmanFilterSettings,
     RefitKalmanFilterProcessor,
+    RefitKalmanFilterSettings,
 )
 
 
@@ -73,9 +74,7 @@ def test_processor_initialization_with_checkpoint(checkpoint_file, steady_state)
         checkpoint_file: Path to temporary checkpoint file
         steady_state: Whether to use steady-state Kalman filter mode
     """
-    settings = RefitKalmanFilterSettings(
-        checkpoint_path=checkpoint_file, steady_state=steady_state
-    )
+    settings = RefitKalmanFilterSettings(checkpoint_path=checkpoint_file, steady_state=steady_state)
     processor = RefitKalmanFilterProcessor(settings)
 
     assert processor._state.model is None
@@ -108,9 +107,7 @@ def test_processor_initialization_without_checkpoint(steady_state):
 
 
 @pytest.mark.parametrize("steady_state", [True, False])
-def test_message_processing_with_checkpoint(
-    create_test_message, checkpoint_file, steady_state
-):
+def test_message_processing_with_checkpoint(create_test_message, checkpoint_file, steady_state):
     """Test that messages can be processed with pre-loaded checkpoint.
 
     Verifies processor can make predictions using pre-trained model parameters.
@@ -121,9 +118,7 @@ def test_message_processing_with_checkpoint(
         checkpoint_file: Path to temporary checkpoint file
         steady_state: Whether to use steady-state Kalman filter mode
     """
-    settings = RefitKalmanFilterSettings(
-        checkpoint_path=checkpoint_file, steady_state=steady_state
-    )
+    settings = RefitKalmanFilterSettings(checkpoint_path=checkpoint_file, steady_state=steady_state)
     processor = RefitKalmanFilterProcessor(settings)
     msg = create_test_message
 
@@ -141,9 +136,7 @@ def test_message_processing_with_checkpoint(
 
 
 @pytest.mark.parametrize("steady_state", [True, False])
-def test_message_processing_without_checkpoint_requires_fit(
-    create_test_message, steady_state
-):
+def test_message_processing_without_checkpoint_requires_fit(create_test_message, steady_state):
     """Test that processing without checkpoint requires model fitting first.
 
     Verifies processor prevents processing when no fitted model is available.
@@ -175,9 +168,7 @@ def test_state_update_during_processing(create_test_message, checkpoint_file):
         create_test_message: Test message fixture with synthetic neural data
         checkpoint_file: Path to temporary checkpoint file
     """
-    settings = RefitKalmanFilterSettings(
-        checkpoint_path=checkpoint_file, steady_state=False
-    )
+    settings = RefitKalmanFilterSettings(checkpoint_path=checkpoint_file, steady_state=False)
     processor = RefitKalmanFilterProcessor(settings)
     msg = create_test_message
 
@@ -231,9 +222,7 @@ def test_refit_functionality_with_buffered_data(create_test_message, checkpoint_
         create_test_message: Test message fixture with synthetic neural data
         checkpoint_file: Path to temporary checkpoint file
     """
-    settings = RefitKalmanFilterSettings(
-        checkpoint_path=checkpoint_file, steady_state=True
-    )
+    settings = RefitKalmanFilterSettings(checkpoint_path=checkpoint_file, steady_state=True)
     processor = RefitKalmanFilterProcessor(settings)
     msg = create_test_message
     processor._reset_state(msg)
@@ -266,9 +255,7 @@ def test_refit_functionality_with_buffered_data(create_test_message, checkpoint_
     Path(checkpoint_file).unlink()
 
 
-def test_refit_functionality_without_buffered_data(
-    create_test_message, checkpoint_file
-):
+def test_refit_functionality_without_buffered_data(create_test_message, checkpoint_file):
     """Test refit functionality when no buffered data exists.
 
     Verifies processor handles refit requests gracefully with empty buffers.
@@ -278,9 +265,7 @@ def test_refit_functionality_without_buffered_data(
         create_test_message: Test message fixture with synthetic neural data
         checkpoint_file: Path to temporary checkpoint file
     """
-    settings = RefitKalmanFilterSettings(
-        checkpoint_path=checkpoint_file, steady_state=True
-    )
+    settings = RefitKalmanFilterSettings(checkpoint_path=checkpoint_file, steady_state=True)
     processor = RefitKalmanFilterProcessor(settings)
     processor._reset_state()
 
@@ -304,9 +289,7 @@ def test_partial_fit_functionality(create_test_message, checkpoint_file):
         create_test_message: Test message fixture with synthetic neural data
         checkpoint_file: Path to temporary checkpoint file
     """
-    settings = RefitKalmanFilterSettings(
-        checkpoint_path=checkpoint_file, steady_state=True
-    )
+    settings = RefitKalmanFilterSettings(checkpoint_path=checkpoint_file, steady_state=True)
     processor = RefitKalmanFilterProcessor(settings)
     msg = create_test_message
     processor._reset_state(msg)
@@ -323,13 +306,9 @@ def test_partial_fit_functionality(create_test_message, checkpoint_file):
             self.trigger = type("obj", (object,), {"value": trigger_value})()
 
     # Create test data
-    neural_data = np.array(
-        [[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]]
-    )  # 3 samples, 2 channels
+    neural_data = np.array([[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]])  # 3 samples, 2 channels
     trigger_value = {
-        "Y_state": np.array(
-            [[1.0, 2.0], [1.1, 2.1], [1.2, 2.2]]
-        ),  # 3 samples, 2 states
+        "Y_state": np.array([[1.0, 2.0], [1.1, 2.1], [1.2, 2.2]]),  # 3 samples, 2 states
         "intention_velocity_indices": 0,
         "target_positions": np.array([[1.0, 1.0], [1.1, 1.1], [1.2, 1.2]]),
         "cursor_positions": np.array([[0.0, 0.0], [0.1, 0.1], [0.2, 0.2]]),
@@ -340,9 +319,7 @@ def test_partial_fit_functionality(create_test_message, checkpoint_file):
     processor.partial_fit(mock_message)
 
     assert not np.allclose(H_initial, processor._state.model.H_observation_matrix)
-    assert not np.allclose(
-        Q_initial, processor._state.model.Q_measurement_noise_covariance
-    )
+    assert not np.allclose(Q_initial, processor._state.model.Q_measurement_noise_covariance)
 
     Path(checkpoint_file).unlink()
 
@@ -357,9 +334,7 @@ def test_hold_periods_functionality(create_test_message, checkpoint_file):
         create_test_message: Test message fixture with synthetic neural data
         checkpoint_file: Path to temporary checkpoint file
     """
-    settings = RefitKalmanFilterSettings(
-        checkpoint_path=checkpoint_file, steady_state=True
-    )
+    settings = RefitKalmanFilterSettings(checkpoint_path=checkpoint_file, steady_state=True)
     processor = RefitKalmanFilterProcessor(settings)
     msg = create_test_message
     processor._reset_state(msg)
@@ -393,9 +368,7 @@ def test_message_processing_integration(create_test_message, checkpoint_file):
         create_test_message: Test message fixture with synthetic neural data
         checkpoint_file: Path to temporary checkpoint file
     """
-    settings = RefitKalmanFilterSettings(
-        checkpoint_path=checkpoint_file, steady_state=True
-    )
+    settings = RefitKalmanFilterSettings(checkpoint_path=checkpoint_file, steady_state=True)
     processor = RefitKalmanFilterProcessor(settings)
 
     msg = create_test_message
@@ -496,9 +469,7 @@ def test_error_handling_for_processing_without_checkpoint(create_test_message):
         processor._process(msg)
 
 
-def test_steady_state_vs_non_steady_state_processing(
-    create_test_message, checkpoint_file
-):
+def test_steady_state_vs_non_steady_state_processing(create_test_message, checkpoint_file):
     """Test differences between steady-state and non-steady-state processing.
 
     Verifies processor produces different results in different modes due to
@@ -509,9 +480,7 @@ def test_steady_state_vs_non_steady_state_processing(
         checkpoint_file: Path to temporary checkpoint file
     """
     # Test steady-state mode
-    settings_steady = RefitKalmanFilterSettings(
-        checkpoint_path=checkpoint_file, steady_state=True
-    )
+    settings_steady = RefitKalmanFilterSettings(checkpoint_path=checkpoint_file, steady_state=True)
     processor_steady = RefitKalmanFilterProcessor(settings_steady)
     msg = create_test_message
     processor_steady._reset_state(msg)
@@ -519,9 +488,7 @@ def test_steady_state_vs_non_steady_state_processing(
     result_steady = processor_steady._process(msg)
 
     # Test non-steady-state mode
-    settings_nonsteady = RefitKalmanFilterSettings(
-        checkpoint_path=checkpoint_file, steady_state=False
-    )
+    settings_nonsteady = RefitKalmanFilterSettings(checkpoint_path=checkpoint_file, steady_state=False)
     processor_nonsteady = RefitKalmanFilterProcessor(settings_nonsteady)
     processor_nonsteady._reset_state(msg)
 

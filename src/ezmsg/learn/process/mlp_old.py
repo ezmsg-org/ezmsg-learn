@@ -1,17 +1,17 @@
 import typing
 
+import ezmsg.core as ez
 import numpy as np
 import torch
 import torch.nn
-import ezmsg.core as ez
-from ezmsg.util.messages.axisarray import AxisArray
-from ezmsg.sigproc.sampler import SampleMessage
-from ezmsg.util.messages.util import replace
-from ezmsg.sigproc.base import (
+from ezmsg.baseproc import (
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
     processor_state,
 )
+from ezmsg.sigproc.sampler import SampleMessage
+from ezmsg.util.messages.axisarray import AxisArray
+from ezmsg.util.messages.util import replace
 
 from ..model.mlp_old import MLP
 
@@ -24,10 +24,12 @@ class MLPSettings(ez.Settings):
     """Norm layer that will be stacked on top of the linear layer. If None this layer won’t be used."""
 
     activation_layer: typing.Callable[..., torch.nn.Module] | None = torch.nn.ReLU
-    """Activation function which will be stacked on top of the normalization layer (if not None), otherwise on top of the linear layer. If None this layer won’t be used."""
+    """Activation function which will be stacked on top of the normalization layer (if not None),
+    otherwise on top of the linear layer. If None this layer won’t be used."""
 
     inplace: bool | None = None
-    """Parameter for the activation layer, which can optionally do the operation in-place. Default is None, which uses the respective default values of the activation_layer and Dropout layer."""
+    """Parameter for the activation layer, which can optionally do the operation in-place.
+    Default is None, which uses the respective default values of the activation_layer and Dropout layer."""
 
     bias: bool = True
     """Whether to use bias in the linear layer."""
@@ -58,9 +60,7 @@ class MLPState:
     device: object | None = None
 
 
-class MLPProcessor(
-    BaseAdaptiveTransformer[MLPSettings, AxisArray, AxisArray, MLPState]
-):
+class MLPProcessor(BaseAdaptiveTransformer[MLPSettings, AxisArray, AxisArray, MLPState]):
     def _hash_message(self, message: AxisArray) -> int:
         hash_items = (message.key,)
         if "ch" in message.dims:
@@ -85,39 +85,29 @@ class MLPProcessor(
                 checkpoint = torch.load(self.settings.checkpoint_path)
                 self._state.model.load_state_dict(checkpoint["model_state_dict"])
             except Exception as e:
-                raise RuntimeError(
-                    f"Failed to load checkpoint from {self.settings.checkpoint_path}: {str(e)}"
-                )
+                raise RuntimeError(f"Failed to load checkpoint from {self.settings.checkpoint_path}: {str(e)}")
 
         # Set the model to evaluation mode by default
         self._state.model.eval()
 
         # Create the optimizer
-        self._state.optimizer = torch.optim.Adam(
-            self._state.model.parameters(), lr=self.settings.learning_rate
-        )
+        self._state.optimizer = torch.optim.Adam(self._state.model.parameters(), lr=self.settings.learning_rate)
 
         # Update the optimizer from checkpoint if it exists
         if self.settings.checkpoint_path is not None:
             try:
                 checkpoint = torch.load(self.settings.checkpoint_path)
                 if "optimizer_state_dict" in checkpoint:
-                    self._state.optimizer.load_state_dict(
-                        checkpoint["optimizer_state_dict"]
-                    )
+                    self._state.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
             except Exception as e:
-                raise RuntimeError(
-                    f"Failed to load optimizer from {self.settings.checkpoint_path}: {str(e)}"
-                )
+                raise RuntimeError(f"Failed to load optimizer from {self.settings.checkpoint_path}: {str(e)}")
 
         # TODO: Should the model be moved to a device before the next line?
         self._state.device = next(self.state.model.parameters()).device
 
         # Optionally create the learning rate scheduler
         self._state.scheduler = (
-            torch.optim.lr_scheduler.ExponentialLR(
-                self._state.optimizer, gamma=self.settings.scheduler_gamma
-            )
+            torch.optim.lr_scheduler.ExponentialLR(self._state.optimizer, gamma=self.settings.scheduler_gamma)
             if self.settings.scheduler_gamma > 0.0
             else None
         )
@@ -171,9 +161,7 @@ class MLPProcessor(
         if not isinstance(data, torch.Tensor):
             data = torch.tensor(
                 data,
-                dtype=torch.float32
-                if self.settings.single_precision
-                else torch.float64,
+                dtype=torch.float32 if self.settings.single_precision else torch.float64,
             )
 
         with torch.no_grad():

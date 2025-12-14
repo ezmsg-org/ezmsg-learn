@@ -1,12 +1,12 @@
 from pathlib import Path
 
-import pytest
 import numpy as np
-from sklearn.model_selection import train_test_split
+import pytest
 import torch
 import torch.nn
-from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.sigproc.sampler import SampleMessage, SampleTriggerMessage
+from ezmsg.util.messages.axisarray import AxisArray
+from sklearn.model_selection import train_test_split
 
 from ezmsg.learn.process.mlp_old import MLPProcessor
 
@@ -107,9 +107,7 @@ def test_mlp_process():
 
     # Split into train and test sets
     test_size = 0.2
-    X_train, X_test, y_train, y_test = train_test_split(
-        data, y, test_size=test_size, shuffle=False
-    )
+    X_train, X_test, y_train, y_test = train_test_split(data, y, test_size=test_size, shuffle=False)
     # Note: Split is NOT shuffled to simulate real-time data.
     assert np.array_equal(X_train, data[: X_train.shape[0]])
     half_test = int(test_size * n_batches // 2)
@@ -121,9 +119,7 @@ def test_mlp_process():
         dims=["time", "ch"],
         axes={
             "time": AxisArray.TimeAxis(fs=fs),
-            "ch": AxisArray.CoordinateAxis(
-                data=np.array([f"ch{i}" for i in range(n_ch)], dtype=str), dims=["ch"]
-            ),
+            "ch": AxisArray.CoordinateAxis(data=np.array([f"ch{i}" for i in range(n_ch)], dtype=str), dims=["ch"]),
         },
         key="test_mlp_process",
     )
@@ -147,14 +143,10 @@ def test_mlp_process():
             #     },
             # )
             # But we are not using the incoming message for anything else, so we mutate the template for speed.
-            template.data[:] = (
-                X  # This would fail if n_samps / batch_size had a remainder.
-            )
+            template.data[:] = X  # This would fail if n_samps / batch_size had a remainder.
             template.axes["time"].offset = ts
             if set == 0:
-                yield SampleMessage(
-                    trigger=SampleTriggerMessage(timestamp=ts, value=y), sample=template
-                )
+                yield SampleMessage(trigger=SampleTriggerMessage(timestamp=ts, value=y), sample=template)
             else:
                 yield template, y
 
@@ -182,9 +174,7 @@ def test_mlp_process():
         train_loss.append(
             torch.nn.MSELoss()(
                 torch.tensor(result[-1].data),
-                torch.tensor(
-                    sample_msg.trigger.value.reshape(-1, 1), dtype=torch.float32
-                ),
+                torch.tensor(sample_msg.trigger.value.reshape(-1, 1), dtype=torch.float32),
             ).item()
         )
 
@@ -206,9 +196,7 @@ def test_mlp_process():
         test_pred = np.concatenate(test_pred).flatten()
         test_true = np.concatenate(test_true).flatten()
         ref = torch.tensor(np.mean(test_true) + np.zeros_like(test_true))
-        test_loss = torch.nn.MSELoss()(
-            torch.tensor(test_pred), torch.tensor(test_true)
-        ).item()
+        test_loss = torch.nn.MSELoss()(torch.tensor(test_pred), torch.tensor(test_true)).item()
         ref_loss = torch.nn.MSELoss()(ref, torch.tensor(test_true)).item()
         assert (test_loss / ref_loss) < 0.01
         """

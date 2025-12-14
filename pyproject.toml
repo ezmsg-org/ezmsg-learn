@@ -9,6 +9,7 @@ license = "MIT"
 requires-python = ">=3.10.15"
 dynamic = ["version"]
 dependencies = [
+    "ezmsg-baseproc",
     "ezmsg-sigproc",
     "river>=0.22.0",
     "scikit-learn>=1.6.0",
@@ -49,7 +50,26 @@ version-file = "src/ezmsg/learn/__version__.py"
 packages = ["src/ezmsg"]
 
 [tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 pythonpath = [
     "src",
     ".",
 ]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+# Exclude auto-generated files
+exclude = ["*/__version__.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["ezmsg.learn"]
+known-third-party = ["ezmsg", "ezmsg.baseproc", "ezmsg.sigproc"]
+
+[tool.uv.sources]
+# Uncomment to use development version of ezmsg from git
+ezmsg = { git = "https://github.com/ezmsg-org/ezmsg.git", branch = "feature/profiling" }

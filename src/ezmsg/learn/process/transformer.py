@@ -2,9 +2,9 @@ import typing
 
 import ezmsg.core as ez
 import torch
-from ezmsg.sigproc.base import BaseAdaptiveTransformer, BaseAdaptiveTransformerUnit
+from ezmsg.baseproc import BaseAdaptiveTransformer, BaseAdaptiveTransformerUnit
+from ezmsg.baseproc.util.profile import profile_subpub
 from ezmsg.sigproc.sampler import SampleMessage
-from ezmsg.sigproc.util.profile import profile_subpub
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
@@ -51,9 +51,7 @@ class TransformerState(TorchModelState):
 
 
 class TransformerProcessor(
-    BaseAdaptiveTransformer[
-        TransformerSettings, AxisArray, AxisArray, TransformerState
-    ],
+    BaseAdaptiveTransformer[TransformerSettings, AxisArray, AxisArray, TransformerState],
     TorchProcessorMixin,
     ModelInitMixin,
 ):
@@ -76,7 +74,8 @@ class TransformerProcessor(
             and self.settings.autoregressive_head not in self._state.chan_ax
         ):
             raise ValueError(
-                f"Autoregressive head '{self.settings.autoregressive_head}' not found in target dictionary keys: {list(self._state.chan_ax.keys())}"
+                f"Autoregressive head '{self.settings.autoregressive_head}' not found in target"
+                f"dictionary keys: {list(self._state.chan_ax.keys())}"
             )
         self._state.ar_head = (
             self.settings.autoregressive_head
@@ -101,15 +100,11 @@ class TransformerProcessor(
         if self._state.tgt_cache is None:
             self._state.tgt_cache = pred[:, -1:, :]
         else:
-            self._state.tgt_cache = torch.cat(
-                [self._state.tgt_cache, pred[:, -1:, :]], dim=1
-            )
+            self._state.tgt_cache = torch.cat([self._state.tgt_cache, pred[:, -1:, :]], dim=1)
         if self.settings.max_cache_len is not None:
             if self._state.tgt_cache.shape[1] > self.settings.max_cache_len:
                 # Trim the cache to the maximum length
-                self._state.tgt_cache = self._state.tgt_cache[
-                    :, -self.settings.max_cache_len :, :
-                ]
+                self._state.tgt_cache = self._state.tgt_cache[:, -self.settings.max_cache_len :, :]
 
         if isinstance(y_pred, dict):
             return [
@@ -186,9 +181,7 @@ class TransformerProcessor(
             for key in y_targ.keys():
                 loss_fn = loss_fns.get(key)
                 if loss_fn is None:
-                    raise ValueError(
-                        f"Loss function for key '{key}' is not defined in settings."
-                    )
+                    raise ValueError(f"Loss function for key '{key}' is not defined in settings.")
                 loss = loss_fn(y_pred[key], y_targ[key])
                 weight = weights.get(key, 1.0)
                 losses.append(loss * weight)
