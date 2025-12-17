@@ -3,7 +3,7 @@ import tempfile
 from pathlib import Path
 
 import ezmsg.core as ez
-from ezmsg.sigproc.synth import Counter, CounterSettings
+from ezmsg.simbiophys.counter import Counter, CounterSettings
 from ezmsg.util.messagecodec import message_log
 from ezmsg.util.messagelogger import MessageLogger, MessageLoggerSettings
 from ezmsg.util.messages.axisarray import AxisArray
@@ -51,9 +51,7 @@ def test_torch_model_unit_system():
             },
         ),
         "LOG": MessageLogger(MessageLoggerSettings(output=test_filename)),
-        "TERM": TerminateOnTotal(
-            TerminateOnTotalSettings(total=int(duration * fs / block_size))
-        ),
+        "TERM": TerminateOnTotal(TerminateOnTotalSettings(total=int(duration * fs / block_size))),
     }
 
     conns = (

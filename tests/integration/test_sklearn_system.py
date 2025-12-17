@@ -6,7 +6,7 @@ from pathlib import Path
 import ezmsg.core as ez
 import numpy as np
 import pandas as pd
-from ezmsg.sigproc.synth import Counter
+from ezmsg.simbiophys.counter import Counter
 from ezmsg.util.messagecodec import message_log
 from ezmsg.util.messagelogger import MessageLogger
 from ezmsg.util.messages.axisarray import AxisArray
