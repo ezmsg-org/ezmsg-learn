@@ -2,7 +2,7 @@ import numpy as np
 from ezmsg.sigproc.sampler import SampleMessage, SampleTriggerMessage
 from ezmsg.util.messages.axisarray import AxisArray
 
-from ezmsg.learn.process.sgd import sgd_decoder
+from ezmsg.learn.process.sgd import SGDDecoderSettings, SGDDecoderTransformer
 
 
 def test_sgd():
@@ -46,14 +46,16 @@ def test_sgd():
     """
     label_weights = {k: 1.0 for k in time_idx.keys()}
     # Sending an axis array before it has seen any training samples should yield None
-    gen = sgd_decoder(alpha=1e-3, loss="squared_hinge", label_weights=label_weights)
-    assert gen.send(windows[0]) is None
+    decoder = SGDDecoderTransformer(
+        settings=SGDDecoderSettings(alpha=1e-3, loss="squared_hinge", label_weights=label_weights)
+    )
+    assert decoder(windows[0]) is None
 
     # Now let's try training on all samples
     for sample in samples:
-        gen.send(sample)
+        decoder(sample)
     # Then doing inference on all multi-wins
-    probas = [gen.send(win) for win in windows]
+    probas = [decoder(win) for win in windows]
 
     # With this easy-to-classify data, accuracy should be 100%
     # when we fit all training before predicting any test.
@@ -64,12 +66,14 @@ def test_sgd():
     assert np.array_equal(class_ids, expected_ids)
 
     # Try again (new model) but alternate 1 train, 2 test.
-    gen = sgd_decoder(alpha=1e-3, loss="squared_hinge", label_weights=label_weights)
+    decoder = SGDDecoderTransformer(
+        settings=SGDDecoderSettings(alpha=1e-3, loss="squared_hinge", label_weights=label_weights)
+    )
     probas = []
     for samp_ix, samp in enumerate(samples):
-        gen.send(samp)
-        probas.append(gen.send(windows[samp_ix * 2]))
-        probas.append(gen.send(windows[samp_ix * 2 + 1]))
+        decoder(samp)
+        probas.append(decoder(windows[samp_ix * 2]))
+        probas.append(decoder(windows[samp_ix * 2 + 1]))
     class_ids = []
     for cm in probas:
         class_ids.extend(np.argmax(cm.data, axis=1).tolist())
