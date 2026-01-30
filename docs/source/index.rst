@@ -49,13 +49,11 @@ Quick Start
 
 For general ezmsg tutorials and guides, visit `ezmsg.org <https://www.ezmsg.org>`_.
 
-For package-specific examples and usage, see the :doc:`api/index` documentation.
-
 .. toctree::
    :maxdepth: 2
-   :hidden:
    :caption: Contents:
 
+   guides/classification
    api/index
 
 
