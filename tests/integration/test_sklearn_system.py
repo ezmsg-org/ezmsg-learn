@@ -6,7 +6,6 @@ from pathlib import Path
 import ezmsg.core as ez
 import numpy as np
 import pandas as pd
-from ezmsg.simbiophys.counter import Counter
 from ezmsg.util.messagecodec import message_log
 from ezmsg.util.messagelogger import MessageLogger
 from ezmsg.util.messages.axisarray import AxisArray
@@ -14,6 +13,7 @@ from ezmsg.util.terminate import TerminateOnTotal
 from river.linear_model import LinearRegression
 
 from ezmsg.learn.process.sklearn import SklearnModelUnit
+from tests.integration.conftest import NoiseSrc, NoiseSrcSettings
 
 
 def test_sklearn_model_unit_system():
@@ -43,13 +43,7 @@ def test_sklearn_model_unit_system():
     ez.logger.info(f"Logging to {test_filename}")
 
     comps = {
-        "SRC": Counter(
-            fs=fs,
-            n_ch=input_size,
-            n_time=block_size,
-            dispatch_rate=duration,
-            mod=None,
-        ),
+        "SRC": NoiseSrc(NoiseSrcSettings(fs=fs, n_ch=input_size, n_time=block_size, dispatch_rate=duration)),
         "MODEL": SklearnModelUnit(
             model_class="river.linear_model.LinearRegression",
             model_kwargs={},

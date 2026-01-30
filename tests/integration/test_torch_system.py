@@ -3,13 +3,13 @@ import tempfile
 from pathlib import Path
 
 import ezmsg.core as ez
-from ezmsg.simbiophys.counter import Counter, CounterSettings
 from ezmsg.util.messagecodec import message_log
 from ezmsg.util.messagelogger import MessageLogger, MessageLoggerSettings
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.terminate import TerminateOnTotal, TerminateOnTotalSettings
 
 from ezmsg.learn.process.torch import TorchModelUnit
+from tests.integration.conftest import NoiseSrc, NoiseSrcSettings
 
 
 def test_torch_model_unit_system():
@@ -26,15 +26,7 @@ def test_torch_model_unit_system():
     ez.logger.info(f"Logging to {test_filename}")
 
     comps = {
-        "SRC": Counter(
-            CounterSettings(
-                fs=fs,
-                n_ch=input_size,
-                n_time=block_size,
-                dispatch_rate=duration,
-                mod=None,
-            )
-        ),
+        "SRC": NoiseSrc(NoiseSrcSettings(fs=fs, n_ch=input_size, n_time=block_size, dispatch_rate=duration)),
         "MODEL": TorchModelUnit(
             model_class="tests.unit.test_torch.DummyModel",
             model_kwargs={

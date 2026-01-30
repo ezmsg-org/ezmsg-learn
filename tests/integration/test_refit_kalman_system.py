@@ -5,7 +5,6 @@ from pathlib import Path
 
 import ezmsg.core as ez
 import numpy as np
-from ezmsg.simbiophys.counter import Counter, CounterSettings
 from ezmsg.util.messagecodec import message_log
 from ezmsg.util.messagelogger import MessageLogger, MessageLoggerSettings
 from ezmsg.util.messages.axisarray import AxisArray
@@ -20,10 +19,11 @@ from ezmsg.learn.process.refit_kalman import (
     RefitKalmanFilterSettings,
     RefitKalmanFilterUnit,
 )
+from tests.integration.conftest import NoiseSrc, NoiseSrcSettings
 
 
 class RefitKalmanSystemSettings(ez.Settings):
-    counter_settings: CounterSettings
+    source_settings: NoiseSrcSettings
     unit_settings: RefitKalmanFilterSettings
     log_settings: MessageLoggerSettings
     terminate_total: TerminateOnTotalSettings
@@ -33,14 +33,14 @@ class RefitKalmanSystemSettings(ez.Settings):
 class RefitKalmanSystem(ez.Collection):
     SETTINGS = RefitKalmanSystemSettings
 
-    SOURCE = Counter()
+    SOURCE = NoiseSrc()
     UNIT = RefitKalmanFilterUnit()
     LOG = MessageLogger()
     TERM_TOTAL = TerminateOnTotal()
     TERM_TIMEOUT = TerminateOnTimeout()
 
     def configure(self) -> None:
-        self.SOURCE.apply_settings(self.SETTINGS.counter_settings)
+        self.SOURCE.apply_settings(self.SETTINGS.source_settings)
         self.UNIT.apply_settings(self.SETTINGS.unit_settings)
         self.LOG.apply_settings(self.SETTINGS.log_settings)
         self.TERM_TOTAL.apply_settings(self.SETTINGS.terminate_total)
@@ -98,12 +98,7 @@ def test_refit_kalman_system():
         checkpoint_file = f.name
 
     settings = RefitKalmanSystemSettings(
-        counter_settings=CounterSettings(
-            fs=fs,
-            n_ch=1,
-            n_time=block_size,
-            dispatch_rate=duration,
-        ),
+        source_settings=NoiseSrcSettings(fs=fs, n_ch=1, n_time=block_size, dispatch_rate=duration),
         unit_settings=RefitKalmanFilterSettings(
             checkpoint_path=checkpoint_file,
             steady_state=True,
