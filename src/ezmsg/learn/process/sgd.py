@@ -62,7 +62,6 @@ class SGDDecoderTransformer(BaseAdaptiveTransformer[SGDDecoderSettings, AxisArra
 
     def _reset_state(self, message: AxisArray) -> None:
         self._state.model = self._refreshed_model()
-        self._state.b_first_train = True
 
     def _process(self, message: AxisArray) -> ClassifierMessage | None:
         if self._state.model is None or not message.data.size:
@@ -89,10 +88,9 @@ class SGDDecoderTransformer(BaseAdaptiveTransformer[SGDDecoderSettings, AxisArra
         )
 
     def partial_fit(self, message: SampleMessage) -> None:
-        if self._state.model is None:
-            # Initialize model on first training sample
-            self._state.model = self._refreshed_model()
-            self._state.b_first_train = True
+        if self._hash != 0:
+            self._reset_state(message.sample)
+            self._hash = 0
 
         if np.any(np.isnan(message.sample.data)):
             return
