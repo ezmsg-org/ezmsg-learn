@@ -57,6 +57,7 @@ from ezmsg.sigproc.affinetransform import (
     AffineTransformSettings,
     AffineTransformTransformer,
 )
+from ezmsg.sigproc.util.array import array_device, xp_create
 from ezmsg.util.messages.axisarray import AxisArray
 
 # ---------------------------------------------------------------------------
@@ -164,22 +165,23 @@ class SelfSupervisedRegressionTransformer(
         ``diag(W) == 0``.
         """
         xp = get_namespace(cxx)
+        dev = array_device(cxx)
         n = cxx.shape[0]
 
         clusters = self.settings.channel_clusters
         if clusters is None:
             clusters = [list(range(n))]
 
-        W = xp.zeros((n, n), dtype=cxx.dtype)
-        eye_n = xp.eye(n, dtype=cxx.dtype)
+        W = xp_create(xp.zeros, (n, n), dtype=cxx.dtype, device=dev)
+        eye_n = xp_create(xp.eye, n, dtype=cxx.dtype, device=dev)
 
         for cluster in clusters:
             k = len(cluster)
             if k <= 1:
                 continue
 
-            idx_xp = xp.asarray(cluster)
-            eye_k = xp.eye(k, dtype=cxx.dtype)
+            idx_xp = xp.asarray(cluster) if dev is None else xp.asarray(cluster, device=dev)
+            eye_k = xp_create(xp.eye, k, dtype=cxx.dtype, device=dev)
 
             # Extract cluster sub-covariance (stays on device)
             sub = xp.take(xp.take(cxx, idx_xp, axis=0), idx_xp, axis=1)
@@ -320,8 +322,9 @@ class LRRTransformer(
 
     def _on_weights_updated(self) -> None:
         xp = get_namespace(self._state.weights)
+        dev = array_device(self._state.weights)
         n = self._state.weights.shape[0]
-        effective = xp.eye(n, dtype=self._state.weights.dtype) - self._state.weights
+        effective = xp_create(xp.eye, n, dtype=self._state.weights.dtype, device=dev) - self._state.weights
 
         # Prefer in-place weight update when the affine transformer supports
         # it (avoids a full _reset_state round-trip on every partial_fit).
