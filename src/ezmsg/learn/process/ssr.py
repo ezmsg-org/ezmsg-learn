@@ -325,7 +325,7 @@ class LRRTransformer(
 
         # Prefer in-place weight update when the affine transformer supports
         # it (avoids a full _reset_state round-trip on every partial_fit).
-        if self._state.affine is not None and hasattr(self._state.affine, "set_weights"):
+        if self._state.affine is not None:
             self._state.affine.set_weights(effective)
         else:
             self._state.affine = AffineTransformTransformer(
