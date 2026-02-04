@@ -11,7 +11,6 @@ from ezmsg.baseproc import (
     BaseAdaptiveTransformerUnit,
     processor_state,
 )
-from ezmsg.sigproc.sampler import SampleMessage
 from ezmsg.util.messages.axisarray import AxisArray, replace
 
 from ..util import AdaptiveLinearRegressor, RegressorType, get_regressor
@@ -78,30 +77,30 @@ class AdaptiveLinearRegressorTransformer(
         #  .template is updated in partial_fit
         pass
 
-    def partial_fit(self, message: SampleMessage) -> None:
-        if np.any(np.isnan(message.sample.data)):
+    def partial_fit(self, message: AxisArray) -> None:
+        if np.any(np.isnan(message.data)):
             return
 
         if self.settings.model_type in [
             AdaptiveLinearRegressor.LINEAR,
             AdaptiveLinearRegressor.LOGISTIC,
         ]:
-            x = pd.DataFrame.from_dict({k: v for k, v in zip(message.sample.axes["ch"].data, message.sample.data.T)})
+            x = pd.DataFrame.from_dict({k: v for k, v in zip(message.axes["ch"].data, message.data.T)})
             y = pd.Series(
-                data=message.trigger.value.data[:, 0],
-                name=message.trigger.value.axes["ch"].data[0],
+                data=message.attrs["trigger"].value.data[:, 0],
+                name=message.attrs["trigger"].value.axes["ch"].data[0],
             )
             self.state.model.learn_many(x, y)
         else:
-            X = message.sample.data
-            if message.sample.get_axis_idx("time") != 0:
-                X = np.moveaxis(X, message.sample.get_axis_idx("time"), 0)
-            self.state.model.partial_fit(X, message.trigger.value.data)
+            X = message.data
+            if message.get_axis_idx("time") != 0:
+                X = np.moveaxis(X, message.get_axis_idx("time"), 0)
+            self.state.model.partial_fit(X, message.attrs["trigger"].value.data)
 
         self.state.template = replace(
-            message.trigger.value,
-            data=np.empty_like(message.trigger.value.data),
-            key=message.trigger.value.key + "_pred",
+            message.attrs["trigger"].value,
+            data=np.empty_like(message.attrs["trigger"].value.data),
+            key=message.attrs["trigger"].value.key + "_pred",
         )
 
     def _process(self, message: AxisArray) -> AxisArray | None:

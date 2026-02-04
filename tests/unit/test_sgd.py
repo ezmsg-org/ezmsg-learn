@@ -1,5 +1,5 @@
 import numpy as np
-from ezmsg.sigproc.sampler import SampleMessage, SampleTriggerMessage
+from ezmsg.baseproc import SampleTriggerMessage
 from ezmsg.util.messages.axisarray import AxisArray
 
 from ezmsg.learn.process.sgd import SGDDecoderSettings, SGDDecoderTransformer
@@ -13,9 +13,10 @@ def test_sgd():
         data = np.random.normal(scale=0.05, size=(3, 2, 1))
         data[time_idx[label] : time_idx[label] + 1, 0, 0] += 1.0
         samples.append(
-            SampleMessage(
-                trigger=SampleTriggerMessage(timestamp=len(samples), period=None, value=label),
-                sample=AxisArray(data=data, dims=["time", "ch", "freq"]),
+            AxisArray(
+                data=data,
+                dims=["time", "ch", "freq"],
+                attrs={"trigger": SampleTriggerMessage(timestamp=len(samples), period=None, value=label)},
             )
         )
 

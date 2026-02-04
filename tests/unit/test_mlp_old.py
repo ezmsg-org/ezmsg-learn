@@ -4,8 +4,9 @@ import numpy as np
 import pytest
 import torch
 import torch.nn
-from ezmsg.sigproc.sampler import SampleMessage, SampleTriggerMessage
+from ezmsg.baseproc import SampleTriggerMessage
 from ezmsg.util.messages.axisarray import AxisArray
+from ezmsg.util.messages.util import replace
 from sklearn.model_selection import train_test_split
 
 from ezmsg.learn.process.mlp_old import MLPProcessor
@@ -146,7 +147,10 @@ def test_mlp_process():
             template.data[:] = X  # This would fail if n_samps / batch_size had a remainder.
             template.axes["time"].offset = ts
             if set == 0:
-                yield SampleMessage(trigger=SampleTriggerMessage(timestamp=ts, value=y), sample=template)
+                yield replace(
+                    template,
+                    attrs={**template.attrs, "trigger": SampleTriggerMessage(timestamp=ts, value=y)},
+                )
             else:
                 yield template, y
 

@@ -5,8 +5,9 @@ import numpy as np
 import pytest
 import torch
 import torch.nn
-from ezmsg.sigproc.sampler import SampleMessage, SampleTriggerMessage
+from ezmsg.baseproc import SampleTriggerMessage
 from ezmsg.util.messages.axisarray import AxisArray
+from ezmsg.util.messages.util import replace
 
 from ezmsg.learn.process.rnn import RNNProcessor
 
@@ -107,9 +108,7 @@ def test_rnn_process(rnn_type, simple_message):
     # We don't pass in the hx state so it should be initialized to zeros, same as in the first call to proc.
     in_tensor = torch.tensor(simple_message.data[None, ...], dtype=torch.float32)
     with torch.no_grad():
-        expected_result = (
-            proc.state.model(in_tensor)[0]["output"].cpu().numpy().squeeze(0)
-        )
+        expected_result = proc.state.model(in_tensor)[0]["output"].cpu().numpy().squeeze(0)
     assert np.allclose(output.data, expected_result)
 
 
@@ -139,9 +138,9 @@ def test_rnn_partial_fit(simple_message):
 
     target_shape = (simple_message.data.shape[0], output_size)
     target_value = np.ones(target_shape, dtype=np.float32)
-    sample_message = SampleMessage(
-        trigger=SampleTriggerMessage(timestamp=0.0, value=target_value),
-        sample=simple_message,
+    sample_message = replace(
+        simple_message,
+        attrs={**simple_message.attrs, "trigger": SampleTriggerMessage(timestamp=0.0, value=target_value)},
     )
 
     proc(sample_message)
@@ -149,9 +148,7 @@ def test_rnn_partial_fit(simple_message):
     assert not proc.state.model.training
     updated_weights = [p.detach() for p in proc.state.model.parameters()]
 
-    assert any(
-        not torch.equal(w0, w1) for w0, w1 in zip(initial_weights, updated_weights)
-    )
+    assert any(not torch.equal(w0, w1) for w0, w1 in zip(initial_weights, updated_weights))
 
 
 def test_rnn_checkpoint_save_load(simple_message):
@@ -201,9 +198,7 @@ def test_rnn_checkpoint_save_load(simple_message):
 
         for key in state_dict1:
             assert key in state_dict2, f"Missing key {key} in loaded state_dict"
-            assert torch.equal(state_dict1[key], state_dict2[key]), (
-                f"Mismatch in parameter {key}"
-            )
+            assert torch.equal(state_dict1[key], state_dict2[key]), f"Mismatch in parameter {key}"
 
     finally:
         # Ensure the temporary file is deleted
@@ -244,20 +239,21 @@ def test_rnn_partial_fit_multiloss(simple_message):
         dtype=torch.long,
     )
 
-    sample_message = SampleMessage(
-        trigger=SampleTriggerMessage(
-            timestamp=0.0,
-            value={"traj": traj_target, "state": state_target},
-        ),
-        sample=simple_message,
+    sample_message = replace(
+        simple_message,
+        attrs={
+            **simple_message.attrs,
+            "trigger": SampleTriggerMessage(
+                timestamp=0.0,
+                value={"traj": traj_target, "state": state_target},
+            ),
+        },
     )
 
     proc.partial_fit(sample_message)
 
     updated_weights = [p.detach() for p in proc.state.model.parameters()]
-    assert any(
-        not torch.equal(w0, w1) for w0, w1 in zip(initial_weights, updated_weights)
-    )
+    assert any(not torch.equal(w0, w1) for w0, w1 in zip(initial_weights, updated_weights))
 
 
 @pytest.mark.parametrize(
@@ -269,9 +265,7 @@ def test_rnn_partial_fit_multiloss(simple_message):
         ("auto", 0.05, 0.1, False),  # overlapping → reset
     ],
 )
-def test_rnn_preserve_state(
-    preserve_state_across_windows, win_stride, win_len, should_preserve
-):
+def test_rnn_preserve_state(preserve_state_across_windows, win_stride, win_len, should_preserve):
     hidden_size = 16
     num_layers = 1
     output_size = 2
