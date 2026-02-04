@@ -5,8 +5,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
-from ezmsg.sigproc.sampler import SampleMessage, SampleTriggerMessage
+from ezmsg.baseproc import SampleTriggerMessage
 from ezmsg.util.messages.axisarray import AxisArray
+from ezmsg.util.messages.util import replace
 
 from ezmsg.learn.process.torch import TorchModelProcessor
 
@@ -185,9 +186,9 @@ def test_partial_fit_changes_weights(batch_message, device):
         },
     )
 
-    msg = SampleMessage(
-        sample=sample,
-        trigger=SampleTriggerMessage(timestamp=0.0, value=y),
+    msg = replace(
+        sample,
+        attrs={"trigger": SampleTriggerMessage(timestamp=0.0, value=y)},
     )
 
     proc(sample)  # run forward pass once to init model
@@ -318,14 +319,11 @@ def test_multihead_partial_fit_with_loss_dict(batch_message, device):
         "head_a": np.random.randn(1, 2),
         "head_b": np.random.randn(1, 3),
     }
-    sample = AxisArray(
+    msg = AxisArray(
         data=batch_message.data[:1],
         dims=["time", "ch"],
         axes=batch_message.axes,
-    )
-    msg = SampleMessage(
-        sample=sample,
-        trigger=SampleTriggerMessage(timestamp=0.0, value=y_targ),
+        attrs={"trigger": SampleTriggerMessage(timestamp=0.0, value=y_targ)},
     )
 
     before_a = proc._state.model.head_a.weight.clone()
@@ -360,14 +358,11 @@ def test_partial_fit_with_loss_weights(batch_message, device):
         "head_a": np.random.randn(1, 2),
         "head_b": np.random.randn(1, 3),
     }
-    sample = AxisArray(
+    msg = AxisArray(
         data=batch_message.data[:1],
         dims=["time", "ch"],
         axes=batch_message.axes,
-    )
-    msg = SampleMessage(
-        sample=sample,
-        trigger=SampleTriggerMessage(timestamp=0.0, value=y_targ),
+        attrs={"trigger": SampleTriggerMessage(timestamp=0.0, value=y_targ)},
     )
 
     # Expect no error, and just run once

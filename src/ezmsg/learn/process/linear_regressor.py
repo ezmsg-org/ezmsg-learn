@@ -7,7 +7,6 @@ from ezmsg.baseproc import (
     BaseAdaptiveTransformerUnit,
     processor_state,
 )
-from ezmsg.sigproc.sampler import SampleMessage
 from ezmsg.util.messages.axisarray import AxisArray, replace
 from sklearn.linear_model._base import LinearModel
 
@@ -53,18 +52,18 @@ class LinearRegressorTransformer(
         #  .model and .template are initialized in __init__
         pass
 
-    def partial_fit(self, message: SampleMessage) -> None:
-        if np.any(np.isnan(message.sample.data)):
+    def partial_fit(self, message: AxisArray) -> None:
+        if np.any(np.isnan(message.data)):
             return
 
-        X = message.sample.data
-        y = message.trigger.value.data
+        X = message.data
+        y = message.attrs["trigger"].value.data
         # TODO: Resample should provide identical durations.
         self.state.model = self.state.model.fit(X[: y.shape[0]], y[: X.shape[0]])
         self.state.template = replace(
-            message.trigger.value,
+            message.attrs["trigger"].value,
             data=np.array([[]]),
-            key=message.trigger.value.key + "_pred",
+            key=message.attrs["trigger"].value.key + "_pred",
         )
 
     def _process(self, message: AxisArray) -> AxisArray:

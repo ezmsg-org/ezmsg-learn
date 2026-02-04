@@ -10,7 +10,6 @@ from ezmsg.baseproc import (
     BaseAdaptiveTransformerUnit,
     processor_state,
 )
-from ezmsg.sigproc.sampler import SampleMessage
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
@@ -116,25 +115,25 @@ class SklearnModelProcessor(BaseAdaptiveTransformer[SklearnModelSettings, AxisAr
             # No checkpoint, initialize from scratch
             self._init_model()
 
-    def partial_fit(self, message: SampleMessage) -> None:
-        X = message.sample.data
-        y = message.trigger.value
+    def partial_fit(self, message: AxisArray) -> None:
+        X = message.data
+        y = message.attrs["trigger"].value
         if self._state.model is None:
-            self._reset_state(message.sample)
+            self._reset_state(message)
         if hasattr(self._state.model, "partial_fit"):
             kwargs = {}
             if self.settings.partial_fit_classes is not None:
                 kwargs["classes"] = self.settings.partial_fit_classes
             self._state.model.partial_fit(X, y, **kwargs)
         elif hasattr(self._state.model, "learn_many"):
-            df_X = pd.DataFrame({k: v for k, v in zip(message.sample.axes["ch"].data, message.sample.data.T)})
+            df_X = pd.DataFrame({k: v for k, v in zip(message.axes["ch"].data, message.data.T)})
             name = (
-                message.trigger.value.axes["ch"].data[0]
-                if hasattr(message.trigger.value, "axes") and "ch" in message.trigger.value.axes
+                message.attrs["trigger"].value.axes["ch"].data[0]
+                if hasattr(message.attrs["trigger"].value, "axes") and "ch" in message.attrs["trigger"].value.axes
                 else "target"
             )
             ser_y = pd.Series(
-                data=np.asarray(message.trigger.value.data).flatten(),
+                data=np.asarray(message.attrs["trigger"].value.data).flatten(),
                 name=name,
             )
             self._state.model.learn_many(df_X, ser_y)

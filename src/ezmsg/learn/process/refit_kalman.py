@@ -8,7 +8,6 @@ from ezmsg.baseproc import (
     BaseAdaptiveTransformerUnit,
     processor_state,
 )
-from ezmsg.sigproc.sampler import SampleMessage
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
@@ -284,22 +283,22 @@ class RefitKalmanFilterProcessor(
             key=f"{message.key}_filtered" if hasattr(message, "key") else "filtered",
         )
 
-    def partial_fit(self, message: SampleMessage) -> None:
+    def partial_fit(self, message: AxisArray) -> None:
         """
         Perform refitting using externally provided data.
 
-        Expects message.sample.data (neural input) and message.trigger.value as a dict with:
+        Expects message.data (neural input) and message.attrs["trigger"].value as a dict with:
             - Y_state: (n_samples, n_states) array
             - intention_velocity_indices: Optional[int]
             - target_positions: Optional[np.ndarray]
             - cursor_positions: Optional[np.ndarray]
             - hold_flags: Optional[list[bool]]
         """
-        if not hasattr(message, "sample") or not hasattr(message, "trigger"):
+        if "trigger" not in message.attrs:
             raise ValueError("Invalid message format for partial_fit.")
 
-        X = np.array(message.sample.data)
-        values = message.trigger.value
+        X = np.array(message.data)
+        values = message.attrs["trigger"].value
 
         if not isinstance(values, dict) or "Y_state" not in values:
             raise ValueError("partial_fit expects trigger.value to include at least 'Y_state'.")

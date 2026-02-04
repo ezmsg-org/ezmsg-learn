@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from ezmsg.sigproc.sampler import SampleMessage, SampleTriggerMessage
+from ezmsg.baseproc import SampleTriggerMessage
 from ezmsg.util.messages.axisarray import AxisArray, replace
 
 from ezmsg.learn.process.adaptive_linear_regressor import (
@@ -42,7 +42,7 @@ def test_adaptive_linear_regressor(model_type: str):
         period=(0.0, dur),
         value=value_axarr,
     )
-    samp = SampleMessage(trigger=samp_trig, sample=sig_axarr)
+    samp = replace(sig_axarr, attrs={"trigger": samp_trig})
 
     proc = AdaptiveLinearRegressorTransformer(model_type=model_type)
     _ = proc.send(samp)

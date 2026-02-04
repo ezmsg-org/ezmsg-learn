@@ -4,8 +4,9 @@ import numpy as np
 import pytest
 import torch
 import torch.nn
-from ezmsg.sigproc.sampler import SampleMessage, SampleTriggerMessage
+from ezmsg.baseproc import SampleTriggerMessage
 from ezmsg.util.messages.axisarray import AxisArray
+from ezmsg.util.messages.util import replace
 from sklearn.model_selection import train_test_split
 
 from ezmsg.learn.process.mlp_old import MLPProcessor
@@ -146,7 +147,10 @@ def test_mlp_process():
             template.data[:] = X  # This would fail if n_samps / batch_size had a remainder.
             template.axes["time"].offset = ts
             if set == 0:
-                yield SampleMessage(trigger=SampleTriggerMessage(timestamp=ts, value=y), sample=template)
+                yield replace(
+                    template,
+                    attrs={**template.attrs, "trigger": SampleTriggerMessage(timestamp=ts, value=y)},
+                )
             else:
                 yield template, y
 
@@ -167,14 +171,15 @@ def test_mlp_process():
     result = []
     train_loss = []
     for sample_msg in xy_gen(set=0):
-        # Naive closed-loop inference
-        result.append(proc(sample_msg.sample))
+        # Naive closed-loop inference — strip trigger attrs before inference
+        plain_msg = replace(sample_msg, attrs={})
+        result.append(proc(plain_msg))
 
         # Collect the loss to see if it decreases with training.
         train_loss.append(
             torch.nn.MSELoss()(
                 torch.tensor(result[-1].data),
-                torch.tensor(sample_msg.trigger.value.reshape(-1, 1), dtype=torch.float32),
+                torch.tensor(sample_msg.attrs["trigger"].value.reshape(-1, 1), dtype=torch.float32),
             ).item()
         )
 

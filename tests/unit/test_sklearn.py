@@ -1,7 +1,8 @@
 import numpy as np
 import pytest
-from ezmsg.sigproc.sampler import SampleMessage, SampleTriggerMessage
+from ezmsg.baseproc import SampleTriggerMessage
 from ezmsg.util.messages.axisarray import AxisArray
+from ezmsg.util.messages.util import replace
 
 from ezmsg.learn.process.sklearn import SklearnModelProcessor
 
@@ -83,9 +84,9 @@ def test_partial_fit_supported_models(
     proc = SklearnModelProcessor(**settings_kwargs)
     proc._reset_state(input_axisarray)
 
-    sample_msg = SampleMessage(
-        sample=input_axisarray,
-        trigger=SampleTriggerMessage(timestamp=0.0, value=labels),
+    sample_msg = replace(
+        input_axisarray,
+        attrs={**input_axisarray.attrs, "trigger": SampleTriggerMessage(timestamp=0.0, value=labels)},
     )
 
     proc.partial_fit(sample_msg)
@@ -96,9 +97,9 @@ def test_partial_fit_supported_models(
 def test_partial_fit_unsupported_model(input_axisarray, labels_regression):
     proc = SklearnModelProcessor(model_class="sklearn.linear_model.Ridge")
     proc._reset_state(input_axisarray)
-    sample_msg = SampleMessage(
-        sample=input_axisarray,
-        trigger=SampleTriggerMessage(timestamp=0.0, value=labels_regression),
+    sample_msg = replace(
+        input_axisarray,
+        attrs={**input_axisarray.attrs, "trigger": SampleTriggerMessage(timestamp=0.0, value=labels_regression)},
     )
     with pytest.raises(NotImplementedError, match="partial_fit"):
         proc.partial_fit(sample_msg)
@@ -108,9 +109,9 @@ def test_partial_fit_changes_model(input_axisarray, labels_regression):
     proc = SklearnModelProcessor(model_class="sklearn.linear_model.SGDRegressor")
     proc._reset_state(input_axisarray)
 
-    sample_msg = SampleMessage(
-        sample=input_axisarray,
-        trigger=SampleTriggerMessage(timestamp=0.0, value=labels_regression),
+    sample_msg = replace(
+        input_axisarray,
+        attrs={**input_axisarray.attrs, "trigger": SampleTriggerMessage(timestamp=0.0, value=labels_regression)},
     )
 
     proc.partial_fit(sample_msg)
@@ -127,9 +128,7 @@ def test_model_save_and_load(tmp_path, input_axisarray):
     checkpoint_path = tmp_path / "model_checkpoint.pkl"
     proc.save_checkpoint(str(checkpoint_path))
 
-    new_proc = SklearnModelProcessor(
-        model_class="sklearn.linear_model.Ridge", checkpoint_path=str(checkpoint_path)
-    )
+    new_proc = SklearnModelProcessor(model_class="sklearn.linear_model.Ridge", checkpoint_path=str(checkpoint_path))
     new_proc._reset_state(input_axisarray)
     assert new_proc._state.model is not None
 

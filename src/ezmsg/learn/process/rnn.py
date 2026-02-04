@@ -5,7 +5,6 @@ import numpy as np
 import torch
 from ezmsg.baseproc import BaseAdaptiveTransformer, BaseAdaptiveTransformerUnit
 from ezmsg.baseproc.util.profile import profile_subpub
-from ezmsg.sigproc.sampler import SampleMessage
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
@@ -184,18 +183,18 @@ class RNNProcessor(
         if self._state.scheduler is not None:
             self._state.scheduler.step()
 
-    def partial_fit(self, message: SampleMessage) -> None:
+    def partial_fit(self, message: AxisArray) -> None:
         self._state.model.train()
 
-        X = self._to_tensor(message.sample.data)
+        X = self._to_tensor(message.data)
 
         # Add batch dimension if missing
         X, batched = self._ensure_batched(X)
 
         batch_size = X.shape[0]
-        preserve_state = self._maybe_reset_state(message.sample, batch_size)
+        preserve_state = self._maybe_reset_state(message, batch_size)
 
-        y_targ = message.trigger.value
+        y_targ = message.attrs["trigger"].value
         if not isinstance(y_targ, dict):
             y_targ = {"output": y_targ}
         y_targ = {key: self._to_tensor(value) for key, value in y_targ.items()}

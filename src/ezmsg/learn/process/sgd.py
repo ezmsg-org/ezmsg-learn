@@ -5,7 +5,6 @@ import numpy as np
 from ezmsg.baseproc import (
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
-    SampleMessage,
     processor_state,
 )
 from ezmsg.util.messages.axisarray import AxisArray
@@ -87,23 +86,23 @@ class SGDDecoderTransformer(BaseAdaptiveTransformer[SGDDecoderSettings, AxisArra
             key=message.key,
         )
 
-    def partial_fit(self, message: SampleMessage) -> None:
+    def partial_fit(self, message: AxisArray) -> None:
         if self._hash != 0:
-            self._reset_state(message.sample)
+            self._reset_state(message)
             self._hash = 0
 
-        if np.any(np.isnan(message.sample.data)):
+        if np.any(np.isnan(message.data)):
             return
-        train_sample = message.sample.data.reshape(1, -1)
+        train_sample = message.data.reshape(1, -1)
         if self._state.b_first_train:
             self._state.model.partial_fit(
                 train_sample,
-                [message.trigger.value],
+                [message.attrs["trigger"].value],
                 classes=list(self.settings.label_weights.keys()),
             )
             self._state.b_first_train = False
         else:
-            self._state.model.partial_fit(train_sample, [message.trigger.value])
+            self._state.model.partial_fit(train_sample, [message.attrs["trigger"].value])
 
 
 class SGDDecoder(

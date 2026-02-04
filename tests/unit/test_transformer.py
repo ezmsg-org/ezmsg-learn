@@ -5,8 +5,9 @@ import numpy as np
 import pytest
 import torch
 import torch.nn
-from ezmsg.sigproc.sampler import SampleMessage, SampleTriggerMessage
+from ezmsg.baseproc import SampleTriggerMessage
 from ezmsg.util.messages.axisarray import AxisArray
+from ezmsg.util.messages.util import replace
 
 from ezmsg.learn.process.transformer import TransformerProcessor
 
@@ -138,9 +139,9 @@ def test_transformer_partial_fit(simple_message, decoder_layers):
 
     target_shape = (simple_message.data.shape[0], output_size)
     target_value = np.ones(target_shape, dtype=np.float32)
-    sample_message = SampleMessage(
-        trigger=SampleTriggerMessage(timestamp=0.0, value=target_value),
-        sample=simple_message,
+    sample_message = replace(
+        simple_message,
+        attrs={**simple_message.attrs, "trigger": SampleTriggerMessage(timestamp=0.0, value=target_value)},
     )
 
     proc.partial_fit(sample_message)
@@ -149,9 +150,7 @@ def test_transformer_partial_fit(simple_message, decoder_layers):
     assert proc.state.tgt_cache is None
     updated_weights = [p.detach() for p in proc.state.model.parameters()]
 
-    assert any(
-        not torch.equal(w0, w1) for w0, w1 in zip(initial_weights, updated_weights)
-    )
+    assert any(not torch.equal(w0, w1) for w0, w1 in zip(initial_weights, updated_weights))
 
 
 def test_transformer_checkpoint_save_load(simple_message):
@@ -201,9 +200,7 @@ def test_transformer_checkpoint_save_load(simple_message):
 
         for key in state_dict1:
             assert key in state_dict2, f"Missing key {key} in loaded state_dict"
-            assert torch.equal(state_dict1[key], state_dict2[key]), (
-                f"Mismatch in parameter {key}"
-            )
+            assert torch.equal(state_dict1[key], state_dict2[key]), f"Mismatch in parameter {key}"
 
     finally:
         # Ensure the temporary file is deleted
@@ -244,20 +241,21 @@ def test_transformer_partial_fit_multiloss(simple_message):
         dtype=torch.long,
     )
 
-    sample_message = SampleMessage(
-        trigger=SampleTriggerMessage(
-            timestamp=0.0,
-            value={"traj": traj_target, "state": state_target},
-        ),
-        sample=simple_message,
+    sample_message = replace(
+        simple_message,
+        attrs={
+            **simple_message.attrs,
+            "trigger": SampleTriggerMessage(
+                timestamp=0.0,
+                value={"traj": traj_target, "state": state_target},
+            ),
+        },
     )
 
     proc.partial_fit(sample_message)
 
     updated_weights = [p.detach() for p in proc.state.model.parameters()]
-    assert any(
-        not torch.equal(w0, w1) for w0, w1 in zip(initial_weights, updated_weights)
-    )
+    assert any(not torch.equal(w0, w1) for w0, w1 in zip(initial_weights, updated_weights))
 
 
 def test_autoregressive_cache_behavior(simple_message):

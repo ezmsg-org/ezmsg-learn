@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from ezmsg.baseproc import SampleTriggerMessage
 from ezmsg.util.messages.axisarray import AxisArray
 
 from ezmsg.learn.process.refit_kalman import (
@@ -299,12 +300,6 @@ def test_partial_fit_functionality(create_test_message, checkpoint_file):
     H_initial = checkpoint_data["H_observation_matrix"]
     Q_initial = checkpoint_data["Q_measurement_noise_covariance"]
 
-    # Create a mock SampleMessage with the expected structure
-    class MockSampleMessage:
-        def __init__(self, neural_data, trigger_value):
-            self.sample = type("obj", (object,), {"data": neural_data})()
-            self.trigger = type("obj", (object,), {"value": trigger_value})()
-
     # Create test data
     neural_data = np.array([[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]])  # 3 samples, 2 channels
     trigger_value = {
@@ -315,8 +310,12 @@ def test_partial_fit_functionality(create_test_message, checkpoint_file):
         "hold_flags": [False, False, False],
     }
 
-    mock_message = MockSampleMessage(neural_data, trigger_value)
-    processor.partial_fit(mock_message)
+    sample_msg = AxisArray(
+        data=neural_data,
+        dims=["time", "ch"],
+        attrs={"trigger": SampleTriggerMessage(timestamp=0.0, value=trigger_value)},
+    )
+    processor.partial_fit(sample_msg)
 
     assert not np.allclose(H_initial, processor._state.model.H_observation_matrix)
     assert not np.allclose(Q_initial, processor._state.model.Q_measurement_noise_covariance)

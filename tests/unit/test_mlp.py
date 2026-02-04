@@ -77,7 +77,8 @@ def test_mlp_checkpoint_io(tmp_path, sample_input, mlp_settings):
 
 
 def test_mlp_partial_fit_learns(sample_input, mlp_settings):
-    from ezmsg.sigproc.sampler import SampleMessage, SampleTriggerMessage
+    from ezmsg.baseproc import SampleTriggerMessage
+    from ezmsg.util.messages.util import replace
 
     proc = TorchModelProcessor(
         model_class="ezmsg.learn.model.mlp.MLP",
@@ -88,13 +89,12 @@ def test_mlp_partial_fit_learns(sample_input, mlp_settings):
     )
     proc(sample_input)
 
-    sample = AxisArray(
-        data=sample_input.data[:1], dims=["time", "ch"], axes=sample_input.axes
-    )
+    sample = AxisArray(data=sample_input.data[:1], dims=["time", "ch"], axes=sample_input.axes)
     target = np.random.randn(1, 5)
 
-    msg = SampleMessage(
-        sample=sample, trigger=SampleTriggerMessage(timestamp=0.0, value=target)
+    msg = replace(
+        sample,
+        attrs={**sample.attrs, "trigger": SampleTriggerMessage(timestamp=0.0, value=target)},
     )
 
     before = [p.detach().clone() for p in proc.state.model.parameters()]
@@ -135,9 +135,9 @@ def test_mlp_hidden_size_integer(sample_input):
         device="cpu",
     )
     proc(sample_input)
-    hidden_layers = [
-        m for m in proc._state.model.modules() if isinstance(m, torch.nn.Linear)
-    ][:-1]  # Exclude the output head
+    hidden_layers = [m for m in proc._state.model.modules() if isinstance(m, torch.nn.Linear)][
+        :-1
+    ]  # Exclude the output head
     assert len(hidden_layers) == 3  # num_layers = 3
     assert hidden_layers[0].in_features == 8
     assert all(layer.out_features == 32 for layer in hidden_layers[:-1])

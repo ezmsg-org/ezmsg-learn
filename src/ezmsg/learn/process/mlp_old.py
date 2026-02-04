@@ -9,7 +9,6 @@ from ezmsg.baseproc import (
     BaseAdaptiveTransformerUnit,
     processor_state,
 )
-from ezmsg.sigproc.sampler import SampleMessage
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
@@ -134,14 +133,14 @@ class MLPProcessor(BaseAdaptiveTransformer[MLPSettings, AxisArray, AxisArray, ML
         dtype = torch.float32 if self.settings.single_precision else torch.float64
         return torch.tensor(data, dtype=dtype, device=self._state.device)
 
-    def partial_fit(self, message: SampleMessage) -> None:
+    def partial_fit(self, message: AxisArray) -> None:
         self._state.model.train()
 
         # TODO: loss_fn should be determined by setting
         loss_fn = torch.nn.functional.mse_loss
 
-        X = self._to_tensor(message.sample.data)
-        y_targ = self._to_tensor(message.trigger.value)
+        X = self._to_tensor(message.data)
+        y_targ = self._to_tensor(message.attrs["trigger"].value)
 
         with torch.set_grad_enabled(True):
             self._state.model.train()

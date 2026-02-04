@@ -12,7 +12,6 @@ from ezmsg.baseproc import (
     processor_state,
 )
 from ezmsg.baseproc.util.profile import profile_subpub
-from ezmsg.sigproc.sampler import SampleMessage
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
@@ -294,13 +293,13 @@ class TorchModelProcessor(
     def _process(self, message: AxisArray) -> list[AxisArray]:
         return self._common_process(message)
 
-    def partial_fit(self, message: SampleMessage) -> None:
+    def partial_fit(self, message: AxisArray) -> None:
         self._state.model.train()
 
-        X = self._to_tensor(message.sample.data)
+        X = self._to_tensor(message.data)
         X, batched = self._ensure_batched(X)
 
-        y_targ = message.trigger.value
+        y_targ = message.attrs["trigger"].value
         if not isinstance(y_targ, dict):
             y_targ = {"output": y_targ}
         y_targ = {key: self._to_tensor(value) for key, value in y_targ.items()}
