@@ -171,14 +171,15 @@ def test_mlp_process():
     result = []
     train_loss = []
     for sample_msg in xy_gen(set=0):
-        # Naive closed-loop inference
-        result.append(proc(sample_msg.sample))
+        # Naive closed-loop inference — strip trigger attrs before inference
+        plain_msg = replace(sample_msg, attrs={})
+        result.append(proc(plain_msg))
 
         # Collect the loss to see if it decreases with training.
         train_loss.append(
             torch.nn.MSELoss()(
                 torch.tensor(result[-1].data),
-                torch.tensor(sample_msg.trigger.value.reshape(-1, 1), dtype=torch.float32),
+                torch.tensor(sample_msg.attrs["trigger"].value.reshape(-1, 1), dtype=torch.float32),
             ).item()
         )
 
