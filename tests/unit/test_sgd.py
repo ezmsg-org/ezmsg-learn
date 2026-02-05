@@ -54,7 +54,7 @@ def test_sgd():
 
     # Now let's try training on all samples
     for sample in samples:
-        decoder(sample)  # Should invoke partial_fit
+        decoder.partial_fit(sample)
     # Then doing inference on all multi-wins
     probas = [decoder(win) for win in windows]
 
@@ -72,7 +72,7 @@ def test_sgd():
     )
     probas = []
     for samp_ix, samp in enumerate(samples):
-        decoder(samp)  # Should invoke partial_fit
+        decoder.partial_fit(samp)
         probas.append(decoder(windows[samp_ix * 2]))
         probas.append(decoder(windows[samp_ix * 2 + 1]))
     class_ids = []
