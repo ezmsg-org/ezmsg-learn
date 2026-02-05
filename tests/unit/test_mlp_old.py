@@ -186,8 +186,7 @@ def test_mlp_process():
         # Train: This is unrealistic in that we would normally do inference on many axisarray messages throughout
         #  the trial, and only do training infrequently at the end of a trial if we can infer the labels.
         #  But I'm too lazy to split the data into many small axarrs and one large SampleMessage per trial.
-        # Note: We don't have to call `partial_fit` because `__call__` inspects the message type and calls it for us.
-        proc(sample_msg)
+        proc.partial_fit(sample_msg)
 
     def eval_test(processor, set: int = 1):
         # Run the test inference

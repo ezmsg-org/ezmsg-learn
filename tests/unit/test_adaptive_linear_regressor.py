@@ -45,7 +45,7 @@ def test_adaptive_linear_regressor(model_type: str):
     samp = replace(sig_axarr, attrs={"trigger": samp_trig})
 
     proc = AdaptiveLinearRegressorTransformer(model_type=model_type)
-    _ = proc.send(samp)
-    preds = proc.send(replace(sig_axarr, data=X + np.random.randn(*X.shape)))
+    proc.partial_fit(samp)
+    preds = proc(replace(sig_axarr, data=X + np.random.randn(*X.shape)))
     assert isinstance(preds, AxisArray)
     assert preds.data.shape == (n_times, 1)

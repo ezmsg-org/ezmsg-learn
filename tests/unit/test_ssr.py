@@ -230,15 +230,15 @@ class TestNonLastAxis:
         assert out.data.shape == X.shape
 
 
-class TestFitTransform:
-    def test_fit_transform(self):
-        """fit_transform matches separate partial_fit + process."""
+class TestPartialFitTransform:
+    def test_partial_fit_transform(self):
+        """partial_fit_transform matches separate partial_fit + process."""
         rng = np.random.default_rng(10)
         X = _random_data(rng=rng)
         msg = _make_axisarray(X)
 
         proc1 = LRRTransformer(LRRSettings())
-        out1 = proc1.fit_transform(msg)
+        out1 = proc1.partial_fit_transform(msg)
 
         proc2 = LRRTransformer(LRRSettings())
         proc2.partial_fit(msg)

@@ -143,7 +143,7 @@ def test_rnn_partial_fit(simple_message):
         attrs={**simple_message.attrs, "trigger": SampleTriggerMessage(timestamp=0.0, value=target_value)},
     )
 
-    proc(sample_message)
+    proc.partial_fit(sample_message)
 
     assert not proc.state.model.training
     updated_weights = [p.detach() for p in proc.state.model.parameters()]

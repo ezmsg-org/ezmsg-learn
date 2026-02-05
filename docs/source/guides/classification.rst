@@ -125,7 +125,8 @@ For models that support ``partial_fit``, you can update them during streaming:
 .. code-block:: python
 
    from ezmsg.learn.process.sklearn import SklearnModelProcessor, SklearnModelSettings
-   from ezmsg.sigproc.sampler import SampleMessage
+   from ezmsg.baseproc import SampleTriggerMessage
+   from ezmsg.util.messages.util import replace
 
    # Create processor with online learning support
    processor = SklearnModelProcessor(
@@ -137,9 +138,9 @@ For models that support ``partial_fit``, you can update them during streaming:
    )
 
    # Training with labeled samples
-   sample_msg = SampleMessage(
-       sample=feature_array,  # AxisArray with features
-       trigger=label_value,   # The class label
+   sample_msg = replace(
+       feature_array,  # AxisArray with features
+       attrs={"trigger": SampleTriggerMessage(value=label_value)}
    )
    processor.partial_fit(sample_msg)
 

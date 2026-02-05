@@ -42,9 +42,9 @@ def test_linear_regressor(model_type: str):
     )
     samp = replace(sig_axarr, attrs={"trigger": samp_trig})
 
-    gen = LinearRegressorTransformer(model_type=model_type)
-    _ = gen.send(samp)
-    preds = gen.send(replace(sig_axarr, data=X + 0.1 * np.random.randn(*X.shape)))
+    proc = LinearRegressorTransformer(model_type=model_type)
+    proc.partial_fit(samp)
+    preds = proc(replace(sig_axarr, data=X + 0.1 * np.random.randn(*X.shape)))
     rss = ((samp_trig.value.data - preds.data) ** 2).sum()
     tss = ((samp_trig.value.data - samp_trig.value.data.mean()) ** 2).sum()
     rsq = 1 - rss / tss

@@ -265,11 +265,6 @@ class SelfSupervisedRegressionTransformer(
         self._state.weights = self._solve_weights(self._state.cxx)
         self._on_weights_updated()
 
-    def fit_transform(self, message: AxisArray) -> AxisArray:
-        """Convenience: ``partial_fit`` then ``_process``."""
-        self.partial_fit(message)
-        return self._process(message)
-
     # -- abstract hooks for subclasses ---------------------------------------
 
     @abstractmethod
