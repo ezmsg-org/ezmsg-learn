@@ -1,7 +1,18 @@
+"""Adaptive decomposition transformers (PCA, NMF).
+
+.. note::
+    This module supports the Array API standard via
+    ``array_api_compat.get_namespace()``.  Reshaping and output allocation
+    use Array API operations; a NumPy boundary is applied before sklearn
+    ``partial_fit``/``transform`` calls.
+"""
+
+import math
 import typing
 
 import ezmsg.core as ez
 import numpy as np
+from array_api_compat import get_namespace, is_numpy_array
 from ezmsg.baseproc import (
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
@@ -128,6 +139,8 @@ class AdaptiveDecompTransformer(
         if in_dat.shape[ax_idx] == 0:
             return self._state.template
 
+        xp = get_namespace(in_dat)
+
         # Re-order axes
         sorted_dims_exp = [iter_axis] + off_targ_axes + targ_axes
         if message.dims != sorted_dims_exp:
@@ -137,16 +150,20 @@ class AdaptiveDecompTransformer(
             pass
 
         # fold [iter_axis] + off_targ_axes together and fold targ_axes together
-        d2 = np.prod(in_dat.shape[len(off_targ_axes) + 1 :])
-        in_dat = in_dat.reshape((-1, d2))
+        d2 = math.prod(in_dat.shape[len(off_targ_axes) + 1 :])
+        in_dat = xp.reshape(in_dat, (-1, d2))
 
         replace_kwargs = {
             "axes": {**self._state.template.axes, iter_axis: message.axes[iter_axis]},
         }
 
-        # Transform data
+        # Transform data — sklearn needs numpy
         if hasattr(self._state.estimator, "components_"):
-            decomp_dat = self._state.estimator.transform(in_dat).reshape((-1,) + self._state.template.data.shape[1:])
+            in_np = np.asarray(in_dat) if not is_numpy_array(in_dat) else in_dat
+            decomp_dat = self._state.estimator.transform(in_np)
+            # Convert back to source namespace
+            decomp_dat = xp.asarray(decomp_dat) if not is_numpy_array(in_dat) else decomp_dat
+            decomp_dat = xp.reshape(decomp_dat, (-1,) + self._state.template.data.shape[1:])
             replace_kwargs["data"] = decomp_dat
 
         return replace(self._state.template, **replace_kwargs)
@@ -165,6 +182,8 @@ class AdaptiveDecompTransformer(
         if in_dat.shape[ax_idx] == 0:
             return
 
+        xp = get_namespace(in_dat)
+
         # Re-order axes if needed
         sorted_dims_exp = [iter_axis] + off_targ_axes + targ_axes
         if message.dims != sorted_dims_exp:
@@ -172,11 +191,12 @@ class AdaptiveDecompTransformer(
             pass
 
         # fold [iter_axis] + off_targ_axes together and fold targ_axes together
-        d2 = np.prod(in_dat.shape[len(off_targ_axes) + 1 :])
-        in_dat = in_dat.reshape((-1, d2))
+        d2 = math.prod(in_dat.shape[len(off_targ_axes) + 1 :])
+        in_dat = xp.reshape(in_dat, (-1, d2))
 
-        # Fit the estimator
-        self._state.estimator.partial_fit(in_dat)
+        # Fit the estimator — sklearn needs numpy
+        in_np = np.asarray(in_dat) if not is_numpy_array(in_dat) else in_dat
+        self._state.estimator.partial_fit(in_np)
 
 
 class IncrementalPCASettings(AdaptiveDecompSettings):
