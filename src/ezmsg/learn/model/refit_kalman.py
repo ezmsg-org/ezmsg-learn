@@ -1,6 +1,17 @@
 # refit_kalman.py
+"""Refit Kalman filter for adaptive neural decoding.
+
+.. note::
+    This module supports the Array API standard via
+    ``array_api_compat.get_namespace()``.  All linear algebra in :meth:`fit`,
+    :meth:`predict`, and :meth:`update` stays in the source array namespace.
+    The DARE solver in :meth:`_compute_gain` and the per-sample mutation loop
+    in :meth:`refit` use NumPy regardless of input backend.
+"""
 
 import numpy as np
+from array_api_compat import get_namespace
+from ezmsg.sigproc.util.array import array_device, xp_asarray, xp_create
 from numpy.linalg import LinAlgError
 from scipy.linalg import solve_discrete_are
 
@@ -108,19 +119,22 @@ class RefitKalmanFilter:
         """
         # self._validate_state_vector(y_train)
 
-        X = np.array(y_train)
-        Z = np.array(X_train)
+        xp = get_namespace(X_train, y_train)
+        _mT = xp.linalg.matrix_transpose
+
+        X = xp.asarray(y_train)
+        Z = xp.asarray(X_train)
         n_samples = X.shape[0]
 
         # Calculate the transition matrix (from x_t to x_t+1) using least-squares
         X2 = X[1:, :]  # x_{t+1}
         X1 = X[:-1, :]  # x_t
-        A = X2.T @ X1 @ np.linalg.inv(X1.T @ X1)  # Transition matrix
-        W = (X2 - X1 @ A.T).T @ (X2 - X1 @ A.T) / (n_samples - 1)  # Covariance of transition matrix
+        A = _mT(X2) @ X1 @ xp.linalg.inv(_mT(X1) @ X1)  # Transition matrix
+        W = _mT(X2 - X1 @ _mT(A)) @ (X2 - X1 @ _mT(A)) / (n_samples - 1)  # Covariance of transition matrix
 
         # Calculate the measurement matrix (from x_t to z_t) using least-squares
-        H = Z.T @ X @ np.linalg.inv(X.T @ X)  # Measurement matrix
-        Q = (Z - X @ H.T).T @ (Z - X @ H.T) / Z.shape[0]  # Covariance of measurement matrix
+        H = _mT(Z) @ X @ xp.linalg.inv(_mT(X) @ X)  # Measurement matrix
+        Q = _mT(Z - X @ _mT(H)) @ (Z - X @ _mT(H)) / Z.shape[0]  # Covariance of measurement matrix
 
         self.A_state_transition_matrix = A
         self.W_process_noise_covariance = W * self.process_noise_scale
@@ -132,12 +146,12 @@ class RefitKalmanFilter:
 
     def refit(
         self,
-        X_neural: np.ndarray,
-        Y_state: np.ndarray,
+        X_neural,
+        Y_state,
         intention_velocity_indices: int | None = None,
-        target_positions: np.ndarray | None = None,
-        cursor_positions: np.ndarray | None = None,
-        hold_indices: np.ndarray | None = None,
+        target_positions=None,
+        cursor_positions=None,
+        hold_indices=None,
     ):
         """
         Refit the observation model based on new data.
@@ -179,13 +193,17 @@ class RefitKalmanFilter:
             else:
                 vel_idx = intention_velocity_indices
 
+        # The per-sample mutation loop uses numpy for element-wise operations
+        # on small vectors (np.linalg.norm on 2-element vectors, scalar indexing).
+        Y_state_np = np.asarray(Y_state)
+        target_positions_np = np.asarray(target_positions) if target_positions is not None else None
+        cursor_positions_np = np.asarray(cursor_positions) if cursor_positions is not None else None
+
         # Only remap velocity if target and cursor positions are provided
-        if target_positions is None or cursor_positions is None:
-            intended_states = Y_state.copy()
-        else:
-            intended_states = Y_state.copy()
+        intended_states = Y_state_np.copy()
+        if target_positions_np is not None and cursor_positions_np is not None:
             # Calculate intended velocities for each sample
-            for i, (state, pos, target) in enumerate(zip(Y_state, cursor_positions, target_positions)):
+            for i, (state, pos, target) in enumerate(zip(Y_state_np, cursor_positions_np, target_positions_np)):
                 is_hold = hold_indices[i] if hold_indices is not None else False
 
                 if is_hold:
@@ -213,14 +231,19 @@ class RefitKalmanFilter:
                     else:
                         intended_states[i, vel_idx : vel_idx + 2] = state[vel_idx : vel_idx + 2]
 
-        intended_states = np.array(intended_states)
-        Z = np.array(X_neural)
+        # Convert back to source namespace for final linalg
+        xp = get_namespace(X_neural)
+        dev = array_device(X_neural)
+        _mT = xp.linalg.matrix_transpose
+
+        intended_states = xp_asarray(xp, intended_states, device=dev)
+        Z = xp.asarray(X_neural)
 
         # Recalculate observation matrix and noise covariance
         H = (
-            Z.T @ intended_states @ np.linalg.pinv(intended_states.T @ intended_states)
+            _mT(Z) @ intended_states @ xp.linalg.pinv(_mT(intended_states) @ intended_states)
         )  # Using pinv() instead of inv() to avoid singular matrix errors
-        Q = (Z - intended_states @ H.T).T @ (Z - intended_states @ H.T) / Z.shape[0]
+        Q = _mT(Z - intended_states @ _mT(H)) @ (Z - intended_states @ _mT(H)) / Z.shape[0]
 
         self.H_observation_matrix = H
         self.Q_measurement_noise_covariance = Q
@@ -236,56 +259,44 @@ class RefitKalmanFilter:
         Riccati equation to find the optimal steady-state gain. In non-steady-state
         mode, it computes the gain using the current covariance matrix.
 
+        The DARE solver requires NumPy arrays; results are converted back to the
+        source array namespace.
+
         Raises:
             LinAlgError: If the Riccati equation cannot be solved or matrix operations fail.
         """
-        # TODO: consider removing non-steady-state for compute_gain() -
-        #  non_steady_state updates will occur during predict() and update()
-        # if self.steady_state:
+        xp = get_namespace(self.A_state_transition_matrix)
+        dev = array_device(self.A_state_transition_matrix)
+        _mT = xp.linalg.matrix_transpose
+
+        # Convert to numpy for DARE (no Array API equivalent)
+        A_np = np.asarray(self.A_state_transition_matrix)
+        H_np = np.asarray(self.H_observation_matrix)
+        W_np = np.asarray(self.W_process_noise_covariance)
+        Q_np = np.asarray(self.Q_measurement_noise_covariance)
+
         try:
-            # Try with original matrices
-            self.P_state_covariance = solve_discrete_are(
-                self.A_state_transition_matrix.T,
-                self.H_observation_matrix.T,
-                self.W_process_noise_covariance,
-                self.Q_measurement_noise_covariance,
+            P_np = solve_discrete_are(A_np.T, H_np.T, W_np, Q_np)
+            self.P_state_covariance = xp_asarray(xp, P_np, device=dev)
+            S = (
+                self.H_observation_matrix @ self.P_state_covariance @ _mT(self.H_observation_matrix)
+                + self.Q_measurement_noise_covariance
             )
-            self.K_kalman_gain = (
-                self.P_state_covariance
-                @ self.H_observation_matrix.T
-                @ np.linalg.inv(
-                    self.H_observation_matrix @ self.P_state_covariance @ self.H_observation_matrix.T
-                    + self.Q_measurement_noise_covariance
-                )
-            )
+            self.K_kalman_gain = self.P_state_covariance @ _mT(self.H_observation_matrix) @ xp.linalg.inv(S)
         except LinAlgError:
-            # Apply regularization and retry
-            # A_reg = self.A_state_transition_matrix * 0.999  # Slight damping
-            # W_reg = self.W_process_noise_covariance + 1e-7 * np.eye(
-            # self.W_process_noise_covariance.shape[0]
-            # )
-            Q_reg = self.Q_measurement_noise_covariance + 1e-7 * np.eye(self.Q_measurement_noise_covariance.shape[0])
+            Q_reg_np = Q_np + 1e-7 * np.eye(Q_np.shape[0])
 
             try:
-                self.P_state_covariance = solve_discrete_are(
-                    self.A_state_transition_matrix.T,
-                    self.H_observation_matrix.T,
-                    self.W_process_noise_covariance,
-                    Q_reg,
-                )
-                self.K_kalman_gain = (
-                    self.P_state_covariance
-                    @ self.H_observation_matrix.T
-                    @ np.linalg.inv(
-                        self.H_observation_matrix @ self.P_state_covariance @ self.H_observation_matrix.T + Q_reg
-                    )
-                )
+                P_np = solve_discrete_are(A_np.T, H_np.T, W_np, Q_reg_np)
+                self.P_state_covariance = xp_asarray(xp, P_np, device=dev)
+                Q_reg = xp_asarray(xp, Q_reg_np, device=dev)
+                S = self.H_observation_matrix @ self.P_state_covariance @ _mT(self.H_observation_matrix) + Q_reg
+                self.K_kalman_gain = self.P_state_covariance @ _mT(self.H_observation_matrix) @ xp.linalg.inv(S)
                 print("Warning: Used regularized matrices for DARE solution")
             except LinAlgError:
                 # Fallback to identity or manual initialization
                 print("Warning: DARE failed, using identity covariance")
-                self.P_state_covariance = np.eye(self.A_state_transition_matrix.shape[0])
-
+                self.P_state_covariance = xp_create(xp.eye, self.A_state_transition_matrix.shape[0], device=dev)
         # else:
         #     n_states = self.A_state_transition_matrix.shape[0]
         #     self.P_state_covariance = (
@@ -311,29 +322,35 @@ class RefitKalmanFilter:
         #         I_mat - self.K_kalman_gain @ self.H_observation_matrix
         #     ) @ P_m
 
-    def predict(self, x_current: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def predict(self, x_current):
         """
         Predict the next state and covariance.
 
         This method predicts the next state and covariance using the current state.
         """
+        xp = get_namespace(x_current)
+        _mT = xp.linalg.matrix_transpose
+
         x_predicted = self.A_state_transition_matrix @ x_current
         if self.steady_state is True:
             return x_predicted, None
         else:
             P_predicted = self.alpha_fading_memory**2 * (
-                self.A_state_transition_matrix @ self.P_state_covariance @ self.A_state_transition_matrix.T
+                self.A_state_transition_matrix @ self.P_state_covariance @ _mT(self.A_state_transition_matrix)
                 + self.W_process_noise_covariance
             )
             return x_predicted, P_predicted
 
     def update(
         self,
-        z_measurement: np.ndarray,
-        x_predicted: np.ndarray,
-        P_predicted: np.ndarray | None = None,
-    ) -> np.ndarray:
+        z_measurement,
+        x_predicted,
+        P_predicted=None,
+    ):
         """Update state estimate and covariance based on measurement z."""
+        xp = get_namespace(z_measurement, x_predicted)
+        dev = array_device(x_predicted)
+        _mT = xp.linalg.matrix_transpose
 
         # Compute residual
         innovation = z_measurement - self.H_observation_matrix @ x_predicted
@@ -347,19 +364,23 @@ class RefitKalmanFilter:
 
         # Non-steady-state mode
         # System uncertainty
-        S = self.H_observation_matrix @ P_predicted @ self.H_observation_matrix.T + self.Q_measurement_noise_covariance
+        S = (
+            self.H_observation_matrix @ P_predicted @ _mT(self.H_observation_matrix)
+            + self.Q_measurement_noise_covariance
+        )
 
         # Kalman gain
-        K = P_predicted @ self.H_observation_matrix.T @ np.linalg.pinv(S)
+        K = P_predicted @ _mT(self.H_observation_matrix) @ xp.linalg.pinv(S)
 
         # Updated state
         x_updated = x_predicted + K @ innovation
 
         # Covariance update
-        I_mat = np.eye(self.A_state_transition_matrix.shape[0])
-        P_updated = (I_mat - K @ self.H_observation_matrix) @ P_predicted @ (
+        n = self.A_state_transition_matrix.shape[0]
+        I_mat = xp_create(xp.eye, n, device=dev)
+        P_updated = (I_mat - K @ self.H_observation_matrix) @ P_predicted @ _mT(
             I_mat - K @ self.H_observation_matrix
-        ).T + K @ self.Q_measurement_noise_covariance @ K.T
+        ) + K @ self.Q_measurement_noise_covariance @ _mT(K)
 
         # Save updated values
         self.P_state_covariance = P_updated

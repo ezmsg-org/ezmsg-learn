@@ -1,7 +1,17 @@
+"""Shrinkage LDA classifier processor.
+
+.. note::
+    This module supports the Array API standard via
+    ``array_api_compat.get_namespace()``.  Input data is manipulated using
+    Array API operations (``permute_dims``, ``reshape``); a NumPy boundary
+    is applied before ``sklearn.predict_proba``.
+"""
+
 import typing
 
 import ezmsg.core as ez
 import numpy as np
+from array_api_compat import get_namespace, is_numpy_array
 from ezmsg.baseproc import (
     BaseStatefulTransformer,
     BaseTransformerUnit,
@@ -72,23 +82,29 @@ class SLDATransformer(BaseStatefulTransformer[SLDASettings, AxisArray, Classifie
         )
 
     def _process(self, message: AxisArray) -> ClassifierMessage:
+        xp = get_namespace(message.data)
         samp_ax_idx = message.dims.index(self.settings.axis)
-        X = np.moveaxis(message.data, samp_ax_idx, 0)
+
+        # Move sample axis to front
+        perm = (samp_ax_idx,) + tuple(i for i in range(message.data.ndim) if i != samp_ax_idx)
+        X = xp.permute_dims(message.data, perm)
 
         if X.shape[0]:
             if isinstance(self.settings.settings_path, str) and self.settings.settings_path[-4:] == ".mat":
-                # Assumes F-contiguous weights
+                # Assumes F-contiguous weights — need numpy for predict_proba
+                X_np = np.asarray(X) if not is_numpy_array(X) else X
                 pred_probas = []
-                for samp in X:
+                for samp in X_np:
                     tmp = samp.flatten(order="F") * 1e-6
                     tmp = np.expand_dims(tmp, axis=0)
                     probas = self.state.lda.predict_proba(tmp)
                     pred_probas.append(probas)
                 pred_probas = np.concatenate(pred_probas, axis=0)
             else:
-                # This creates a copy.
-                X = X.reshape(X.shape[0], -1)
-                pred_probas = self.state.lda.predict_proba(X)
+                # Numpy boundary before sklearn predict_proba
+                X_np = np.asarray(X) if not is_numpy_array(X) else X
+                X_np = X_np.reshape(X_np.shape[0], -1)
+                pred_probas = self.state.lda.predict_proba(X_np)
 
             update_ax = self.state.out_template.axes[self.settings.axis]
             update_ax.offset = message.axes[self.settings.axis].offset
