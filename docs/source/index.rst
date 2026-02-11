@@ -54,6 +54,7 @@ For general ezmsg tutorials and guides, visit `ezmsg.org <https://www.ezmsg.org>
    :caption: Contents:
 
    guides/classification
+   guides/array_api
    api/index
 
 

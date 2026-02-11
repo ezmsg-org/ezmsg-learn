@@ -1,13 +1,24 @@
+"""Refit Kalman filter processor for ezmsg.
+
+.. note::
+    This module supports the Array API standard via
+    ``array_api_compat.get_namespace()``.  State initialization and output
+    arrays use the source data's namespace.  Buffered data for refitting
+    is stacked via ``xp.stack``.
+"""
+
 import pickle
 from pathlib import Path
 
 import ezmsg.core as ez
 import numpy as np
+from array_api_compat import get_namespace
 from ezmsg.baseproc import (
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
     processor_state,
 )
+from ezmsg.sigproc.util.array import array_device, xp_create
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
@@ -54,8 +65,8 @@ class RefitKalmanFilterState:
     """
 
     model: RefitKalmanFilter | None = None
-    x: np.ndarray | None = None
-    P: np.ndarray | None = None
+    x: object | None = None  # Array API; namespace matches source data.
+    P: object | None = None  # Array API; namespace matches source data.
 
     buffer_neural: list | None = None
     buffer_state: list | None = None
@@ -142,7 +153,7 @@ class RefitKalmanFilterProcessor(
         config.update(kwargs)
         self._state.model = RefitKalmanFilter(**config)
 
-    def fit(self, X: np.ndarray, y: np.ndarray) -> None:
+    def fit(self, X, y) -> None:
         if self._state.model is None:
             self._init_model()
         if hasattr(self._state.model, "fit"):
@@ -176,6 +187,11 @@ class RefitKalmanFilterProcessor(
 
         Raises:
             ValueError: If the model is not initialized or has not been fitted.
+
+        .. note::
+            Checkpoint data is pickled as NumPy arrays.  If model matrices live
+            on a non-NumPy backend (e.g. CuPy), pickle may fail — this is a
+            pre-existing limitation.
         """
         if not self._state.model or not self._state.model.is_fitted:
             raise ValueError("Cannot save checkpoint: model not fitted")
@@ -222,8 +238,15 @@ class RefitKalmanFilterProcessor(
         if self._state.model.A_state_transition_matrix is not None:
             state_dim = self._state.model.A_state_transition_matrix.shape[0]
 
-        self._state.x = np.zeros(state_dim)
-        self._state.P = np.eye(state_dim)
+        # Derive xp/dev from message data when available; default to numpy.
+        if message is not None:
+            xp = get_namespace(message.data)
+            dev = array_device(message.data)
+        else:
+            xp, dev = np, None
+
+        self._state.x = xp_create(xp.zeros, (state_dim,), dtype=xp.float64, device=dev)
+        self._state.P = xp_create(xp.eye, state_dim, dtype=xp.float64, device=dev)
 
         self._state.buffer_neural = []
         self._state.buffer_state = []
@@ -252,15 +275,19 @@ class RefitKalmanFilterProcessor(
         # No checkpoint means you need to initialize and fit the model
         elif not self._state.model:
             self._init_model()
+
+        xp = get_namespace(message.data)
+        dev = array_device(message.data)
+
         state_dim = self._state.model.A_state_transition_matrix.shape[0]
         if self._state.x is None:
-            self._state.x = np.zeros(state_dim)
+            self._state.x = xp_create(xp.zeros, (state_dim,), dtype=xp.float64, device=dev)
 
-        filtered_data = np.zeros(
-            (
-                message.data.shape[0],
-                self._state.model.A_state_transition_matrix.shape[0],
-            )
+        filtered_data = xp_create(
+            xp.zeros,
+            (message.data.shape[0], state_dim),
+            dtype=message.data.dtype,
+            device=dev,
         )
 
         for i in range(message.data.shape[0]):
@@ -271,9 +298,9 @@ class RefitKalmanFilterProcessor(
             # Update
             x_updated = self._state.model.update(measurement, x_pred, P_pred)
 
-            # Store
-            self._state.x = x_updated.copy()
-            self._state.P = self._state.model.P_state_covariance.copy()
+            # Store — no .copy() needed, predict/update return new arrays
+            self._state.x = x_updated
+            self._state.P = self._state.model.P_state_covariance
             filtered_data[i] = self._state.x
 
         return replace(
@@ -297,7 +324,8 @@ class RefitKalmanFilterProcessor(
         if "trigger" not in message.attrs:
             raise ValueError("Invalid message format for partial_fit.")
 
-        X = np.array(message.data)
+        xp = get_namespace(message.data)
+        X = xp.asarray(message.data)
         values = message.attrs["trigger"].value
 
         if not isinstance(values, dict) or "Y_state" not in values:
@@ -305,7 +333,7 @@ class RefitKalmanFilterProcessor(
 
         kwargs = {
             "X_neural": X,
-            "Y_state": np.array(values["Y_state"]),
+            "Y_state": xp.asarray(values["Y_state"]),
         }
 
         # Optional fields
@@ -316,7 +344,7 @@ class RefitKalmanFilterProcessor(
             "hold_flags",
         ]:
             if key in values and values[key] is not None:
-                kwargs[key if key != "hold_flags" else "hold_indices"] = np.array(values[key])
+                kwargs[key if key != "hold_flags" else "hold_indices"] = xp.asarray(values[key])
 
         # Call model refit
         self._state.model.refit(**kwargs)
@@ -324,7 +352,7 @@ class RefitKalmanFilterProcessor(
     def log_for_refit(
         self,
         message: AxisArray,
-        target_position: np.ndarray | None = None,
+        target_position=None,
         hold_flag: bool | None = None,
     ):
         """
@@ -341,13 +369,13 @@ class RefitKalmanFilterProcessor(
             hold_flag: Boolean flag indicating if this is a hold period.
         """
         if target_position is not None:
-            self._state.buffer_target_positions.append(target_position.copy())
+            self._state.buffer_target_positions.append(target_position)
         if hold_flag is not None:
             self._state.buffer_hold_flags.append(hold_flag)
 
         measurement = message.data[-1]
-        self._state.buffer_neural.append(measurement.copy())
-        self._state.buffer_state.append(self._state.x.copy())
+        self._state.buffer_neural.append(measurement)
+        self._state.buffer_state.append(self._state.x)
 
     def refit_model(self):
         """
@@ -370,17 +398,19 @@ class RefitKalmanFilterProcessor(
             print("No buffered data to refit")
             return
 
+        xp = get_namespace(self._state.buffer_neural[0])
+
         kwargs = {
-            "X_neural": np.array(self._state.buffer_neural),
-            "Y_state": np.array(self._state.buffer_state),
+            "X_neural": xp.stack(self._state.buffer_neural),
+            "Y_state": xp.stack(self._state.buffer_state),
             "intention_velocity_indices": self.settings.velocity_indices[0],
         }
 
         if self._state.buffer_target_positions and self._state.buffer_cursor_positions:
-            kwargs["target_positions"] = np.array(self._state.buffer_target_positions)
-            kwargs["cursor_positions"] = np.array(self._state.buffer_cursor_positions)
+            kwargs["target_positions"] = xp.stack(self._state.buffer_target_positions)
+            kwargs["cursor_positions"] = xp.stack(self._state.buffer_cursor_positions)
         if self._state.buffer_hold_flags:
-            kwargs["hold_indices"] = np.array(self._state.buffer_hold_flags)
+            kwargs["hold_indices"] = xp.asarray(self._state.buffer_hold_flags)
 
         self._state.model.refit(**kwargs)
 

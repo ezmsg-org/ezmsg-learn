@@ -1,3 +1,12 @@
+"""Adaptive linear regressor processor.
+
+.. note::
+    This module supports the Array API standard via
+    ``array_api_compat.get_namespace()``.  NaN checks and axis permutations
+    use Array API operations; a NumPy boundary is applied before sklearn
+    ``partial_fit``/``predict`` and before river ``learn_many``/``predict_many``.
+"""
+
 from dataclasses import field
 
 import ezmsg.core as ez
@@ -6,6 +15,7 @@ import pandas as pd
 import river.linear_model
 import river.optim
 import sklearn.base
+from array_api_compat import get_namespace, is_numpy_array
 from ezmsg.baseproc import (
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
@@ -78,24 +88,32 @@ class AdaptiveLinearRegressorTransformer(
         pass
 
     def partial_fit(self, message: AxisArray) -> None:
-        if np.any(np.isnan(message.data)):
+        xp = get_namespace(message.data)
+
+        if xp.any(xp.isnan(message.data)):
             return
 
         if self.settings.model_type in [
             AdaptiveLinearRegressor.LINEAR,
             AdaptiveLinearRegressor.LOGISTIC,
         ]:
-            x = pd.DataFrame.from_dict({k: v for k, v in zip(message.axes["ch"].data, message.data.T)})
+            # river path: needs numpy/pandas
+            data_np = np.asarray(message.data) if not is_numpy_array(message.data) else message.data
+            x = pd.DataFrame.from_dict({k: v for k, v in zip(message.axes["ch"].data, data_np.T)})
             y = pd.Series(
                 data=message.attrs["trigger"].value.data[:, 0],
                 name=message.attrs["trigger"].value.axes["ch"].data[0],
             )
             self.state.model.learn_many(x, y)
         else:
+            # sklearn path: permute then convert to numpy
             X = message.data
-            if message.get_axis_idx("time") != 0:
-                X = np.moveaxis(X, message.get_axis_idx("time"), 0)
-            self.state.model.partial_fit(X, message.attrs["trigger"].value.data)
+            ax_idx = message.get_axis_idx("time")
+            if ax_idx != 0:
+                perm = (ax_idx,) + tuple(i for i in range(X.ndim) if i != ax_idx)
+                X = xp.permute_dims(X, perm)
+            X_np = np.asarray(X) if not is_numpy_array(X) else X
+            self.state.model.partial_fit(X_np, message.attrs["trigger"].value.data)
 
         self.state.template = replace(
             message.attrs["trigger"].value,
@@ -107,16 +125,21 @@ class AdaptiveLinearRegressorTransformer(
         if self.state.template is None:
             return AxisArray(np.array([]), dims=[""])
 
-        if not np.any(np.isnan(message.data)):
+        xp = get_namespace(message.data)
+
+        if not xp.any(xp.isnan(message.data)):
             if self.settings.model_type in [
                 AdaptiveLinearRegressor.LINEAR,
                 AdaptiveLinearRegressor.LOGISTIC,
             ]:
-                # convert msg_in.data to something appropriate for river
-                x = pd.DataFrame.from_dict({k: v for k, v in zip(message.axes["ch"].data, message.data.T)})
+                # river path: needs numpy/pandas
+                data_np = np.asarray(message.data) if not is_numpy_array(message.data) else message.data
+                x = pd.DataFrame.from_dict({k: v for k, v in zip(message.axes["ch"].data, data_np.T)})
                 preds = self.state.model.predict_many(x).values
             else:
-                preds = self.state.model.predict(message.data)
+                # sklearn path: needs numpy
+                data_np = np.asarray(message.data) if not is_numpy_array(message.data) else message.data
+                preds = self.state.model.predict(data_np)
             return replace(
                 self.state.template,
                 data=preds.reshape((len(preds), -1)),
