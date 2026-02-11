@@ -27,7 +27,7 @@ lint = [
     "ruff>=0.12.9",
 ]
 test = [
-    "ezmsg-simbiophys>=1.0.0",
+    "ezmsg-simbiophys>=1.3.0",
     "hmmlearn>=0.3.3",
     "pytest>=8.4.1",
 ]
