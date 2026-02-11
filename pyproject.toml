@@ -6,7 +6,7 @@ authors = [
     { name = "Chadwick Boulay", email = "chadwick.boulay@gmail.com" }
 ]
 license = "MIT"
-requires-python = ">=3.10.15"
+requires-python = ">=3.10"
 dynamic = ["version"]
 dependencies = [
     "ezmsg>=3.7.3",
