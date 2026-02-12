@@ -49,9 +49,7 @@ class TransformerModel(torch.nn.Module):
         else:
             autoregressive_size = list(output_size.values())[0]
         if isinstance(output_size, dict):
-            autoregressive_size = output_size.get(
-                autoregressive_head, autoregressive_size
-            )
+            autoregressive_size = output_size.get(autoregressive_head, autoregressive_size)
         self.start_token = torch.nn.Parameter(torch.zeros(1, 1, autoregressive_size))
         self.output_to_hidden = torch.nn.Linear(autoregressive_size, hidden_size)
 
@@ -86,10 +84,7 @@ class TransformerModel(torch.nn.Module):
         if isinstance(output_size, int):
             output_size = {"output": output_size}
         self.heads = torch.nn.ModuleDict(
-            {
-                name: torch.nn.Linear(hidden_size, out_dim)
-                for name, out_dim in output_size.items()
-            }
+            {name: torch.nn.Linear(hidden_size, out_dim) for name, out_dim in output_size.items()}
         )
 
     @classmethod
@@ -108,13 +103,9 @@ class TransformerModel(torch.nn.Module):
             "hidden_size": state_dict["input_proj.weight"].shape[0],
             "output_size": output_size,
             # Infer encoder_layers from transformer layers in state_dict
-            "encoder_layers": len(
-                [k for k in state_dict if k.startswith("encoder.layers")]
-            ),
+            "encoder_layers": len([k for k in state_dict if k.startswith("encoder.layers")]),
             # Infer decoder_layers from transformer decoder layers in state_dict
-            "decoder_layers": len(
-                {k.split(".")[2] for k in state_dict if k.startswith("decoder.layers")}
-            )
+            "decoder_layers": len({k.split(".")[2] for k in state_dict if k.startswith("decoder.layers")})
             if any(k.startswith("decoder.layers") for k in state_dict)
             else 0,
         }
@@ -129,10 +120,11 @@ class TransformerModel(torch.nn.Module):
     ) -> dict[str, torch.Tensor]:
         """
         Forward pass through the transformer model.
+
         Args:
             src (torch.Tensor): Input tensor of shape (batch, seq_len, input_size).
             tgt (Optional[torch.Tensor]): Target tensor for decoder, shape (batch, seq_len, input_size).
-                Required if `decoder_layers > 0`. In training, this can be the ground-truth target sequence
+                Required if ``decoder_layers > 0``. In training, this can be the ground-truth target sequence
                 (i.e. teacher forcing). During inference, this is constructed autoregressively.
             src_mask (Optional[torch.Tensor]): Optional attention mask for the encoder input. Should be broadcastable
                 to shape (batch, seq_len, seq_len) or (seq_len, seq_len).
@@ -140,9 +132,10 @@ class TransformerModel(torch.nn.Module):
                 decoding (i.e. autoregressive generation) during training or inference.
             start_pos (int): Starting offset for positional embeddings. Used for streaming inference to maintain
                 correct positional indices. Default is 0.
+
         Returns:
-            dict[str, torch.Tensor]: Dictionary of output tensors each output head, each with shape (batch, seq_len,
-                output_size).
+            dict[str, torch.Tensor]: Dictionary of output tensors each output head, each with shape
+            (batch, seq_len, output_size).
         """
         B, T, _ = src.shape
         device = src.device
@@ -158,9 +151,7 @@ class TransformerModel(torch.nn.Module):
             if tgt is None:
                 tgt = self.start_token.expand(B, -1, -1).to(device)
             tgt_proj = self.output_to_hidden(tgt)
-            tgt_pos_ids = torch.arange(tgt.shape[1], device=device).expand(
-                B, tgt.shape[1]
-            )
+            tgt_pos_ids = torch.arange(tgt.shape[1], device=device).expand(B, tgt.shape[1])
             tgt_proj = tgt_proj + self.pos_embedding(tgt_pos_ids)
             tgt_proj = self.dropout(tgt_proj)
             out = self.decoder(

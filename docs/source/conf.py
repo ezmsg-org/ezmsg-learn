@@ -37,6 +37,7 @@ extensions = [
 templates_path = ["_templates"]
 source_suffix = [".rst"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+suppress_warnings = ["myst.xref_missing"]
 
 # The toctree master document
 master_doc = "index"

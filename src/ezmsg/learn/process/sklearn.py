@@ -55,33 +55,17 @@ class SklearnModelProcessor(BaseAdaptiveTransformer[SklearnModelSettings, AxisAr
 
     The processor expects and outputs `AxisArray` messages with a `"ch"` (channel) axis.
 
-    Settings:
-    ---------
-    model_class : str
-        Full path to the sklearn or River model class to use.
-        Example: "sklearn.linear_model.SGDClassifier" or "river.linear_model.LogisticRegression"
+    See :class:`SklearnModelSettings` for configuration options.
 
-    model_kwargs : dict[str, typing.Any], optional
-        Additional keyword arguments passed to the model constructor.
+    Example::
 
-    checkpoint_path : str, optional
-        Path to a pickle file to load a previously saved model. If provided, the model will
-        be restored from this path at startup.
-
-    partial_fit_classes : np.ndarray, optional
-        For classifiers that require all class labels to be specified during `partial_fit`.
-
-    Example:
-    -----------------------------
-    ```python
-    processor = SklearnModelProcessor(
-        settings=SklearnModelSettings(
-            model_class='sklearn.linear_model.SGDClassifier',
-            model_kwargs={'loss': 'log_loss'},
-            partial_fit_classes=np.array([0, 1]),
+        processor = SklearnModelProcessor(
+            settings=SklearnModelSettings(
+                model_class='sklearn.linear_model.SGDClassifier',
+                model_kwargs={'loss': 'log_loss'},
+                partial_fit_classes=np.array([0, 1]),
+            )
         )
-    )
-    ```
     """
 
     def _init_model(self) -> None:
@@ -224,17 +208,15 @@ class SklearnModelUnit(BaseAdaptiveTransformerUnit[SklearnModelSettings, AxisArr
     in an ezmsg graph-based system. It takes in `AxisArray` inputs and outputs predictions
     in the same format, optionally performing training via `partial_fit` or `fit`.
 
-    Example:
-    --------
-    ```python
-    unit = SklearnModelUnit(
-        settings=SklearnModelSettings(
-            model_class='sklearn.linear_model.SGDClassifier',
-            model_kwargs={'loss': 'log_loss'},
-            partial_fit_classes=np.array([0, 1]),
+    Example::
+
+        unit = SklearnModelUnit(
+            settings=SklearnModelSettings(
+                model_class='sklearn.linear_model.SGDClassifier',
+                model_kwargs={'loss': 'log_loss'},
+                partial_fit_classes=np.array([0, 1]),
+            )
         )
-    )
-    ```
     """
 
     SETTINGS = SklearnModelSettings

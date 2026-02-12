@@ -227,11 +227,11 @@ class MiniBatchNMFSettings(AdaptiveDecompSettings):
 
     beta_loss: typing.Union[str, float] = "frobenius"
     """
-    'frobenius', 'kullback-leibler', 'itakura-saito'
+    'frobenius', 'kullback-leibler', 'itakura-saito'.
     Note that values different from 'frobenius'
-        (or 2) and 'kullback-leibler' (or 1) lead to significantly slower
-        fits. Note that for `beta_loss <= 0` (or 'itakura-saito'), the input
-        matrix `X` cannot contain zeros.
+    (or 2) and 'kullback-leibler' (or 1) lead to significantly slower
+    fits. Note that for ``beta_loss <= 0`` (or 'itakura-saito'), the input
+    matrix ``X`` cannot contain zeros.
     """
 
     tol: float = 1e-4

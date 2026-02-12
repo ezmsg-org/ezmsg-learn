@@ -5,5 +5,5 @@ from ..process.sgd import (
     SGDDecoderSettings as SGDDecoderSettings,
 )
 from ..process.sgd import (
-    sgd_decoder as sgd_decoder,
+    SGDDecoderTransformer as SGDDecoderTransformer,
 )

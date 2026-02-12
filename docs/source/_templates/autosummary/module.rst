@@ -1,6 +1,9 @@
 {{ fullname | escape | underline}}
 
 .. automodule:: {{ fullname }}
+   :no-members:
+   :no-undoc-members:
+   :no-special-members:
 
    {% block attributes %}
    {% if attributes %}

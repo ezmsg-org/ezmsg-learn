@@ -31,16 +31,15 @@ class RefitKalmanFilterSettings(ez.Settings):
 
     This class defines the configuration parameters for the Refit Kalman filter processor.
     The RefitKalmanFilter is designed for online processing and playback.
-
-    Attributes:
-        checkpoint_path: Path to saved model parameters (optional).
-            If provided, loads pre-trained parameters instead of learning from data.
-        steady_state: Whether to use steady-state Kalman filter.
-            If True, uses pre-computed Kalman gain; if False, updates dynamically.
     """
 
     checkpoint_path: str | None = None
+    """Path to saved model parameters. If provided, loads pre-trained parameters instead of learning from data."""
+
     steady_state: bool = False
+    """Whether to use steady-state Kalman filter. If True, uses pre-computed Kalman gain;
+    if False, updates dynamically."""
+
     velocity_indices: tuple[int, int] = (2, 3)
 
 
@@ -51,28 +50,31 @@ class RefitKalmanFilterState:
 
     This class manages the persistent state of the Refit Kalman filter processor,
     including the model instance, current state estimates, and data buffers for refitting.
-
-    Attributes:
-        model: The RefitKalmanFilter model instance.
-        x: Current state estimate (n_states,).
-        P: Current state covariance matrix (n_states x n_states).
-        buffer_neural: Buffer for storing neural activity data for refitting.
-        buffer_state: Buffer for storing state estimates for refitting.
-        buffer_cursor_positions: Buffer for storing cursor positions for refitting.
-        buffer_target_positions: Buffer for storing target positions for refitting.
-        buffer_hold_flags: Buffer for storing hold flags for refitting.
-        current_position: Current cursor position estimate (2,).
     """
 
     model: RefitKalmanFilter | None = None
+    """The RefitKalmanFilter model instance."""
+
     x: object | None = None  # Array API; namespace matches source data.
+    """Current state estimate (n_states,)."""
+
     P: object | None = None  # Array API; namespace matches source data.
+    """Current state covariance matrix (n_states x n_states)."""
 
     buffer_neural: list | None = None
+    """Buffer for storing neural activity data for refitting."""
+
     buffer_state: list | None = None
+    """Buffer for storing state estimates for refitting."""
+
     buffer_cursor_positions: list | None = None
+    """Buffer for storing cursor positions for refitting."""
+
     buffer_target_positions: list | None = None
+    """Buffer for storing target positions for refitting."""
+
     buffer_hold_flags: list | None = None
+    """Buffer for storing hold flags for refitting."""
 
 
 class RefitKalmanFilterProcessor(
@@ -382,10 +384,8 @@ class RefitKalmanFilterProcessor(
         Refit the observation model (H, Q) using buffered measurements and contextual data.
 
         This method updates the model's understanding of the neural-to-state mapping
-        by calculating a new observation matrix and noise covariance, based on:
-            - Logged neural data
-            - Cursor state estimates
-            - Hold flags and target positions
+        by calculating a new observation matrix and noise covariance, based on
+        logged neural data, cursor state estimates, hold flags, and target positions.
 
         Args:
             velocity_indices (tuple): Indices in the state vector corresponding to velocity components.

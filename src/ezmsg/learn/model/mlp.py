@@ -25,6 +25,7 @@ class MLP(torch.nn.Module):
     ):
         """
         Initialize the MLP model.
+
         Args:
             input_size (int): The size of the input features.
             hidden_size (int | list[int]): The sizes of the hidden layers. If a list, num_layers must be None or the
