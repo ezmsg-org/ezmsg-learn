@@ -31,7 +31,8 @@ class LinearRegressorTransformer(
     """
     Linear regressor.
 
-    Note: `partial_fit` is not 'partial'. It fully resets the model using the entirety of the SampleMessage provided.
+    Note: `partial_fit` is not 'partial'. It fully resets the model using the entirety of the
+    SampleTriggerMessage in the input message's "training" attrs.
     If you require adaptive fitting, try using the adaptive_linear_regressor module.
     """
 

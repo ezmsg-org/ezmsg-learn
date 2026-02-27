@@ -356,7 +356,7 @@ class LRRUnit(
     """ezmsg Unit wrapping :class:`LRRTransformer`.
 
     Follows the :class:`BaseAdaptiveDecompUnit` pattern — accepts
-    :class:`AxisArray` (not :class:`SampleMessage`) for self-supervised
+    :class:`AxisArray` for self-supervised
     training via ``INPUT_SAMPLE``.
     """
 

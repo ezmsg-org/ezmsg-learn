@@ -185,7 +185,7 @@ def test_mlp_process():
 
         # Train: This is unrealistic in that we would normally do inference on many axisarray messages throughout
         #  the trial, and only do training infrequently at the end of a trial if we can infer the labels.
-        #  But I'm too lazy to split the data into many small axarrs and one large SampleMessage per trial.
+        #  But I'm too lazy to split the data into many small AxisArrays and one large labeled AxisArrays-with-triggers.
         proc.partial_fit(sample_msg)
 
     def eval_test(processor, set: int = 1):
