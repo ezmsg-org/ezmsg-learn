@@ -157,9 +157,9 @@ class SklearnModelProcessor(BaseAdaptiveTransformer[SklearnModelSettings, AxisAr
         else:
             raise NotImplementedError("Model does not support fit or learn_many")
 
-    def _process(self, message: AxisArray) -> AxisArray:
+    def _process(self, message: AxisArray) -> AxisArray | None:
         if self._state.model is None:
-            raise RuntimeError("Model has not been fit yet. Call `fit()` or `partial_fit()` before processing.")
+            return None
         X = message.data
         original_shape = X.shape
         n_input = X.shape[message.get_axis_idx("ch")]
