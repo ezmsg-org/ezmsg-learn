@@ -14,6 +14,16 @@ from ezmsg.learn.util import AdaptiveLinearRegressor
 
 
 class SampleAdaptRegressorSettings(ez.Settings):
+    # AdaptiveLinearRegressor settings
+    model_type: AdaptiveLinearRegressor = AdaptiveLinearRegressor.LINEAR
+    """Adaptive regressor backend/model."""
+
+    model_path: str | None = None
+    """Optional path to a pickled preconfigured model."""
+
+    model_kwargs: dict = field(default_factory=dict)
+    """Extra kwargs passed to the underlying regressor."""
+
     # Resampling settings
     resample_axis: str = "time"
     """Axis to resample along."""
@@ -24,16 +34,6 @@ class SampleAdaptRegressorSettings(ez.Settings):
     # SeqSeqSampler settings
     sampler_max_buffer_dur: float = 5.0
     """Maximum buffer duration for the SeqSeqSampler in seconds."""
-
-    # AdaptiveLinearRegressor settings
-    model_type: AdaptiveLinearRegressor = AdaptiveLinearRegressor.LINEAR
-    """Adaptive regressor backend/model."""
-
-    model_path: str | None = None
-    """Optional path to a pickled preconfigured model."""
-
-    model_kwargs: dict = field(default_factory=dict)
-    """Extra kwargs passed to the underlying regressor."""
 
 
 class SampleAdaptRegressor(ez.Collection):
