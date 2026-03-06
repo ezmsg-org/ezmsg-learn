@@ -1,3 +1,5 @@
+from dataclasses import field
+
 import ezmsg.core as ez
 from ezmsg.baseproc import SampleTriggerMessage
 from ezmsg.sigproc.resample import ResampleSettings, ResampleUnit
@@ -8,10 +10,30 @@ from ezmsg.learn.process.adaptive_linear_regressor import (
     AdaptiveLinearRegressorUnit,
 )
 from ezmsg.learn.process.seqseqsampler import SeqSeqSamplerSettings, SeqSeqSamplerUnit
+from ezmsg.learn.util import AdaptiveLinearRegressor
 
 
 class SampleAdaptRegressorSettings(ez.Settings):
-    pass
+    # Resampling settings
+    resample_axis: str = "time"
+    """Axis to resample along."""
+
+    resample_buffer_duration: float = 2.0
+    """Duration of the buffer for resampling in seconds."""
+
+    # SeqSeqSampler settings
+    sampler_max_buffer_dur: float = 5.0
+    """Maximum buffer duration for the SeqSeqSampler in seconds."""
+
+    # AdaptiveLinearRegressor settings
+    model_type: AdaptiveLinearRegressor = AdaptiveLinearRegressor.LINEAR
+    """Adaptive regressor backend/model."""
+
+    model_path: str | None = None
+    """Optional path to a pickled preconfigured model."""
+
+    model_kwargs: dict = field(default_factory=dict)
+    """Extra kwargs passed to the underlying regressor."""
 
 
 class SampleAdaptRegressor(ez.Collection):
@@ -27,9 +49,26 @@ class SampleAdaptRegressor(ez.Collection):
     REGRESSOR = AdaptiveLinearRegressorUnit()
 
     def configure(self) -> None:
-        self.RESAMPLE.apply_settings(ResampleSettings())
-        self.SEQSEQSAMPLER.apply_settings(SeqSeqSamplerSettings())
-        self.REGRESSOR.apply_settings(AdaptiveLinearRegressorSettings())
+        self.RESAMPLE.apply_settings(
+            ResampleSettings(
+                axis=self.SETTINGS.resample_axis,
+                max_chunk_delay=float("inf"),
+                fill_value="extrapolate",
+                buffer_duration=self.SETTINGS.resample_buffer_duration,
+            )
+        )
+        self.SEQSEQSAMPLER.apply_settings(
+            SeqSeqSamplerSettings(
+                max_buffer_dur=self.SETTINGS.sampler_max_buffer_dur,
+            )
+        )
+        self.REGRESSOR.apply_settings(
+            AdaptiveLinearRegressorSettings(
+                model_type=self.SETTINGS.model_type,
+                settings_path=self.SETTINGS.model_path,
+                model_kwargs=self.SETTINGS.model_kwargs,
+            )
+        )
 
     def network(self) -> ez.NetworkDefinition:
         return (
