@@ -53,13 +53,19 @@ class TestFitThenProcessShape:
         assert out.data.shape == X.shape
 
 
-class TestProcessBeforeFitRaises:
-    def test_process_before_fit_raises(self):
-        """Calling process before fitting must raise RuntimeError."""
-        msg = _make_axisarray(_random_data())
+class TestProcessBeforeFitPassthrough:
+    def test_process_before_fit_passthrough(self):
+        """Calling process before fitting should pass data through unchanged."""
+        rng = np.random.default_rng(123)
+        X = _random_data(rng=rng)
+        msg = _make_axisarray(X)
+
         proc = LRRTransformer(LRRSettings())
-        with pytest.raises(RuntimeError, match="not been fitted"):
-            proc.send(msg)
+        out = proc.send(msg)
+
+        assert isinstance(out, AxisArray)
+        assert out.data.shape == X.shape
+        np.testing.assert_allclose(out.data, X, atol=1e-12)
 
 
 class TestEffectiveWeightsIMinusW:
@@ -245,6 +251,26 @@ class TestPartialFitTransform:
         out2 = proc2.send(msg)
 
         np.testing.assert_allclose(out1.data, out2.data, atol=1e-12)
+
+
+class TestPassthroughThenFit:
+    def test_passthrough_then_fit(self):
+        """Pre-fit send() should passthrough, then partial_fit() should update weights."""
+        rng = np.random.default_rng(124)
+        X = _random_data(n_times=300, n_ch=4, rng=rng)
+        msg = _make_axisarray(X)
+
+        proc = LRRTransformer(LRRSettings())
+
+        out_before = proc.send(msg)
+        np.testing.assert_allclose(out_before.data, X, atol=1e-12)
+
+        proc.partial_fit(msg)
+        out_after = proc.send(msg)
+
+        W = proc.state.weights
+        expected = X @ (np.eye(W.shape[0]) - W)
+        np.testing.assert_allclose(out_after.data, expected, atol=1e-10)
 
 
 class TestInvalidClusterIndicesRaise:

@@ -339,8 +339,20 @@ class LRRTransformer(
 
     def _process(self, message: AxisArray) -> AxisArray:
         if self._state.affine is None:
-            raise RuntimeError(
-                "LRRTransformer has not been fitted. Call partial_fit() or provide pre-calculated weights."
+            axis = self.settings.axis or message.dims[-1]
+            axis_idx = message.get_axis_idx(axis)
+            n_channels = message.data.shape[axis_idx]
+
+            xp = get_namespace(message.data)
+            dev = array_device(message.data)
+            effective = xp_create(xp.eye, n_channels, dtype=message.data.dtype, device=dev)
+            self._state.affine = AffineTransformTransformer(
+                AffineTransformSettings(
+                    weights=effective,
+                    axis=self.settings.axis,
+                    channel_clusters=self.settings.channel_clusters,
+                    min_cluster_size=self.settings.min_cluster_size,
+                )
             )
         return self._state.affine(message)
 
