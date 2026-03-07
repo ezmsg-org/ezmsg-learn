@@ -78,5 +78,6 @@ class SampleAdaptRegressor(ez.Collection):
             (self.INPUT_SIGNAL, self.SEQSEQSAMPLER.INPUT_SIGNAL),
             (self.INPUT_TRIGGER, self.SEQSEQSAMPLER.INPUT_TRIGGER),
             (self.SEQSEQSAMPLER.OUTPUT_SAMPLE, self.REGRESSOR.INPUT_SAMPLE),
+            (self.INPUT_SIGNAL, self.REGRESSOR.INPUT_SIGNAL),
             (self.REGRESSOR.OUTPUT_SIGNAL, self.OUTPUT_SIGNAL),
         )
