@@ -26,6 +26,27 @@ from ezmsg.util.messages.axisarray import AxisArray, replace
 from ..util import AdaptiveLinearRegressor, RegressorType, get_regressor
 
 
+def _normalize_axis_label(label):
+    dtype_names = getattr(getattr(label, "dtype", None), "names", None)
+    if dtype_names is not None:
+        if "label" in dtype_names:
+            return str(label["label"])
+        return tuple((name, _normalize_axis_label(label[name])) for name in dtype_names)
+
+    if isinstance(label, np.generic):
+        return label.item()
+
+    try:
+        hash(label)
+        return label
+    except TypeError:
+        return str(label)
+
+
+def _axis_labels(axis_data) -> list:
+    return [_normalize_axis_label(label) for label in axis_data]
+
+
 class AdaptiveLinearRegressorSettings(ez.Settings):
     model_type: AdaptiveLinearRegressor = AdaptiveLinearRegressor.LINEAR
     settings_path: str | None = None
@@ -99,10 +120,10 @@ class AdaptiveLinearRegressorTransformer(
         ]:
             # river path: needs numpy/pandas
             data_np = np.asarray(message.data) if not is_numpy_array(message.data) else message.data
-            x = pd.DataFrame.from_dict({k: v for k, v in zip(message.axes["ch"].data, data_np.T)})
+            x = pd.DataFrame(data_np, columns=_axis_labels(message.axes["ch"].data))
             y = pd.Series(
                 data=message.attrs["trigger"].value.data[:, 0],
-                name=message.attrs["trigger"].value.axes["ch"].data[0],
+                name=_axis_labels(message.attrs["trigger"].value.axes["ch"].data)[0],
             )
             self.state.model.learn_many(x, y)
         else:
@@ -134,7 +155,7 @@ class AdaptiveLinearRegressorTransformer(
             ]:
                 # river path: needs numpy/pandas
                 data_np = np.asarray(message.data) if not is_numpy_array(message.data) else message.data
-                x = pd.DataFrame.from_dict({k: v for k, v in zip(message.axes["ch"].data, data_np.T)})
+                x = pd.DataFrame(data_np, columns=_axis_labels(message.axes["ch"].data))
                 preds = self.state.model.predict_many(x).values
             else:
                 # sklearn path: needs numpy
