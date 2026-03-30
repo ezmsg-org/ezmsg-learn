@@ -26,6 +26,18 @@ from ezmsg.util.messages.axisarray import AxisArray, replace
 from ..util import AdaptiveLinearRegressor, RegressorType, get_regressor
 
 
+class AdaptiveLinearRegressorSettings(ez.Settings):
+    model_type: AdaptiveLinearRegressor = AdaptiveLinearRegressor.LINEAR
+    settings_path: str | None = None
+    model_kwargs: dict = field(default_factory=dict)
+
+
+@processor_state
+class AdaptiveLinearRegressorState:
+    template: AxisArray | None = None
+    model: river.linear_model.base.GLM | sklearn.base.RegressorMixin | None = None
+
+
 def _normalize_axis_label(label):
     dtype_names = getattr(getattr(label, "dtype", None), "names", None)
     if dtype_names is not None:
@@ -47,16 +59,12 @@ def _axis_labels(axis_data) -> list:
     return [_normalize_axis_label(label) for label in axis_data]
 
 
-class AdaptiveLinearRegressorSettings(ez.Settings):
-    model_type: AdaptiveLinearRegressor = AdaptiveLinearRegressor.LINEAR
-    settings_path: str | None = None
-    model_kwargs: dict = field(default_factory=dict)
-
-
-@processor_state
-class AdaptiveLinearRegressorState:
-    template: AxisArray | None = None
-    model: river.linear_model.base.GLM | sklearn.base.RegressorMixin | None = None
+def _prediction_template(message: AxisArray) -> AxisArray:
+    return replace(
+        message,
+        data=np.empty_like(message.data),
+        key=message.key + "_pred",
+    )
 
 
 class AdaptiveLinearRegressorTransformer(
@@ -108,6 +116,11 @@ class AdaptiveLinearRegressorTransformer(
         #  .template is updated in partial_fit
         pass
 
+    def update_template(self, message: AxisArray) -> None:
+        if self.settings.settings_path is None and self.state.template is None:
+            return
+        self.state.template = _prediction_template(message)
+
     def partial_fit(self, message: AxisArray) -> None:
         xp = get_namespace(message.data)
 
@@ -136,11 +149,7 @@ class AdaptiveLinearRegressorTransformer(
             X_np = np.asarray(X) if not is_numpy_array(X) else X
             self.state.model.partial_fit(X_np, message.attrs["trigger"].value.data)
 
-        self.state.template = replace(
-            message.attrs["trigger"].value,
-            data=np.empty_like(message.attrs["trigger"].value.data),
-            key=message.attrs["trigger"].value.key + "_pred",
-        )
+        self.state.template = _prediction_template(message.attrs["trigger"].value)
 
     def _process(self, message: AxisArray) -> AxisArray | None:
         if self.state.template is None:
@@ -166,10 +175,7 @@ class AdaptiveLinearRegressorTransformer(
                 data=preds.reshape((len(preds), -1)),
                 axes={
                     **self.state.template.axes,
-                    "time": replace(
-                        message.axes["time"],
-                        offset=message.axes["time"].offset,
-                    ),
+                    "time": message.axes["time"],
                 },
             )
 
@@ -183,3 +189,8 @@ class AdaptiveLinearRegressorUnit(
     ]
 ):
     SETTINGS = AdaptiveLinearRegressorSettings
+    INPUT_TEMPLATE = ez.InputStream(AxisArray)
+
+    @ez.subscriber(INPUT_TEMPLATE, zero_copy=True)
+    async def on_template(self, message: AxisArray) -> None:
+        self.processor.update_template(message)

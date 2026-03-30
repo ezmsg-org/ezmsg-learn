@@ -72,6 +72,7 @@ class SampleAdaptRegressor(ez.Collection):
 
     def network(self) -> ez.NetworkDefinition:
         return (
+            (self.INPUT_LABELS, self.REGRESSOR.INPUT_TEMPLATE),
             (self.INPUT_LABELS, self.RESAMPLE.INPUT_SIGNAL),
             (self.INPUT_SIGNAL, self.RESAMPLE.INPUT_REFERENCE),
             (self.RESAMPLE.OUTPUT_SIGNAL, self.SEQSEQSAMPLER.INPUT_VALUE),
