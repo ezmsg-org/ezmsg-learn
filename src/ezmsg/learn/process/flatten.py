@@ -7,6 +7,27 @@ from ezmsg.baseproc import BaseTransformer, BaseTransformerUnit
 from ezmsg.util.messages.axisarray import AxisArray, replace
 
 
+def _normalize_axis_label(label):
+    dtype_names = getattr(getattr(label, "dtype", None), "names", None)
+    if dtype_names is not None:
+        if "label" in dtype_names:
+            return str(label["label"])
+        return tuple((name, _normalize_axis_label(label[name])) for name in dtype_names)
+
+    if isinstance(label, np.generic):
+        return label.item()
+
+    try:
+        hash(label)
+        return label
+    except TypeError:
+        return str(label)
+
+
+def _axis_labels(axis_data) -> list:
+    return [_normalize_axis_label(label) for label in axis_data]
+
+
 class FlattenSettings(ez.Settings):
     preserve_axis: str | None = None
     sample_axis: str | None = None
@@ -50,6 +71,20 @@ class FlattenTransformer(BaseTransformer[FlattenSettings, AxisArray, AxisArray])
             feature_ax = message.axes[feature_axis]
             if hasattr(feature_ax, "dims"):
                 feature_ax = replace(feature_ax, dims=[feature_axis])
+        elif (
+            flat_dims == [sample_axis, feature_axis]
+            and data.ndim == 3
+            and feature_axis in message.axes
+            and hasattr(message.axes[feature_axis], "data")
+        ):
+            base_labels = [str(label) for label in _axis_labels(message.axes[feature_axis].data)]
+            if len(base_labels) != data.shape[2]:
+                raise ValueError(f"Expected {data.shape[2]} feature labels, got {len(base_labels)}.")
+            expanded_labels = [f"{label}__t-{lag}" for lag in range(data.shape[1] - 1, -1, -1) for label in base_labels]
+            feature_ax = AxisArray.CoordinateAxis(
+                data=np.asarray(expanded_labels),
+                dims=[feature_axis],
+            )
         else:
             feature_ax = AxisArray.CoordinateAxis(
                 data=np.arange(n_features),
@@ -68,7 +103,5 @@ class FlattenTransformer(BaseTransformer[FlattenSettings, AxisArray, AxisArray])
         )
 
 
-class Flatten(
-    BaseTransformerUnit[FlattenSettings, AxisArray, AxisArray, FlattenTransformer]
-):
+class Flatten(BaseTransformerUnit[FlattenSettings, AxisArray, AxisArray, FlattenTransformer]):
     SETTINGS = FlattenSettings
