@@ -1,10 +1,13 @@
 import numpy as np
 import pytest
 import sklearn.linear_model
+from ezmsg.sigproc.window import WindowTransformer
+from ezmsg.sigproc.window import WindowSettings
 from ezmsg.baseproc import SampleTriggerMessage
 from ezmsg.util.messages.axisarray import AxisArray, replace
 
 from ezmsg.learn.process.adaptive_linear_regressor import AdaptiveLinearRegressorTransformer
+from ezmsg.learn.process.flatten import FlattenTransformer
 
 
 def _make_signal(n_times: int = 128, n_ch: int = 3, fs: float = 1000.0) -> tuple[np.ndarray, AxisArray]:
@@ -113,3 +116,36 @@ def test_adaptive_linear_regressor_predicts_from_checkpoint_before_partial_fit(t
     assert isinstance(preds, AxisArray)
     assert preds.data.shape == (signal.data.shape[0], 1)
     assert preds.axes["ch"].data.tolist() == ["ch0"]
+
+
+def test_adaptive_linear_regressor_predicts_from_windowed_flattened_checkpoint(tmp_path):
+    X, signal = _make_signal(n_times=10, n_ch=2, fs=10.0)
+    win_len = 3
+    X_win = np.stack([X[idx : idx + win_len].reshape(-1) for idx in range(len(X) - win_len + 1)])
+    y = (X_win @ np.arange(1, X_win.shape[1] + 1, dtype=float)).reshape(-1, 1)
+
+    model = sklearn.linear_model.SGDRegressor(random_state=0, max_iter=1000, tol=1e-3)
+    model.fit(X_win, y.ravel())
+
+    checkpoint_path = tmp_path / "adaptive_linear_regressor_windowed.pkl"
+    with checkpoint_path.open("wb") as f:
+        import pickle
+
+        pickle.dump(model, f)
+
+    windowing = WindowTransformer(
+        WindowSettings(
+            axis="time",
+            newaxis="win",
+            window_dur=win_len * signal.axes["time"].gain,
+            window_shift=signal.axes["time"].gain,
+        )
+    )
+    flatten = FlattenTransformer(preserve_axis="win", sample_axis="time", feature_axis="ch")
+    proc = AdaptiveLinearRegressorTransformer(model_type="sgd", settings_path=str(checkpoint_path))
+
+    preds = proc(flatten(windowing(signal)))
+
+    assert isinstance(preds, AxisArray)
+    assert preds.dims == ["time", "ch"]
+    assert preds.data.shape == (len(X) - win_len + 1, 1)
