@@ -310,15 +310,15 @@ class SeqSeqSamplerUnit(ez.Unit):
     async def initialize(self):
         self.STATE.core = SeqSeqSampler(max_buffer_dur=self.SETTINGS.max_buffer_dur)
 
-    @ez.subscriber(INPUT_TRIGGER, zero_copy=True)
+    @ez.subscriber(INPUT_TRIGGER)
     async def on_trigger(self, message: SampleTriggerMessage):
         await self.STATE.core.enqueue_trigger(message)
 
-    @ez.subscriber(INPUT_VALUE, zero_copy=True)
+    @ez.subscriber(INPUT_VALUE)
     async def on_value(self, message: AxisArray):
         await self.STATE.core.enqueue_value(message)
 
-    @ez.subscriber(INPUT_SIGNAL, zero_copy=True)
+    @ez.subscriber(INPUT_SIGNAL)
     async def on_signal(self, message: AxisArray):
         await self.STATE.core.enqueue_signal(message)
 

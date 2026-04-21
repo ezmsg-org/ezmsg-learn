@@ -9,9 +9,9 @@ license = "MIT"
 requires-python = ">=3.10"
 dynamic = ["version"]
 dependencies = [
-    "ezmsg>=3.7.3",
-    "ezmsg-baseproc>=1.5.1",
-    "ezmsg-sigproc>=2.17.0",
+    "ezmsg>=3.9.0",
+    "ezmsg-baseproc>=1.7.0",
+    "ezmsg-sigproc>=2.20.3",
     "river>=0.22.0",
     "scikit-learn>=1.6.0",
     "torch>=2.6.0",

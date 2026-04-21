@@ -47,10 +47,10 @@ class SampleAdaptRegressorSettings(ez.Settings):
 class SampleAdaptRegressor(ez.Collection):
     SETTINGS = SampleAdaptRegressorSettings
 
-    INPUT_LABELS = ez.InputStream(AxisArray)
-    INPUT_SIGNAL = ez.InputStream(AxisArray)
-    INPUT_TRIGGER = ez.InputStream(SampleTriggerMessage)
-    OUTPUT_SIGNAL = ez.OutputStream(AxisArray)
+    INPUT_LABELS = ez.InputTopic(AxisArray)
+    INPUT_SIGNAL = ez.InputTopic(AxisArray)
+    INPUT_TRIGGER = ez.InputTopic(SampleTriggerMessage)
+    OUTPUT_SIGNAL = ez.OutputTopic(AxisArray)
 
     RESAMPLE = ResampleUnit()
     SEQSEQSAMPLER = SeqSeqSamplerUnit()

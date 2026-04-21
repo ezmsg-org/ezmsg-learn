@@ -16,7 +16,7 @@ class NoiseSrc(ez.Collection):
 
     SETTINGS = NoiseSrcSettings
 
-    OUTPUT_SIGNAL = ez.OutputStream(AxisArray)
+    OUTPUT_SIGNAL = ez.OutputTopic(AxisArray)
 
     CLOCK = Clock()
     NOISE = WhiteNoise()
