@@ -78,6 +78,7 @@ class SampleAdaptRegressor(ez.Collection):
                 newaxis="win",
                 window_dur=self.SETTINGS.decode_window_dur,
                 window_shift=self.SETTINGS.decode_window_shift,
+                zero_pad_until="input",
             )
         )
         self.FLATTEN.apply_settings(
