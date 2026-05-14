@@ -270,7 +270,7 @@ class TorchSimpleUnit(
 ):
     SETTINGS = TorchSimpleSettings
 
-    @ez.subscriber(BaseTransformerUnit.INPUT_SIGNAL, zero_copy=True)
+    @ez.subscriber(BaseTransformerUnit.INPUT_SIGNAL)
     @ez.publisher(BaseTransformerUnit.OUTPUT_SIGNAL)
     @profile_subpub(trace_oldest=False)
     async def on_signal(self, message: AxisArray) -> typing.AsyncGenerator:
@@ -352,7 +352,7 @@ class TorchModelUnit(
 ):
     SETTINGS = TorchModelSettings
 
-    @ez.subscriber(BaseAdaptiveTransformerUnit.INPUT_SIGNAL, zero_copy=True)
+    @ez.subscriber(BaseAdaptiveTransformerUnit.INPUT_SIGNAL)
     @ez.publisher(BaseAdaptiveTransformerUnit.OUTPUT_SIGNAL)
     @profile_subpub(trace_oldest=False)
     async def on_signal(self, message: AxisArray) -> typing.AsyncGenerator:

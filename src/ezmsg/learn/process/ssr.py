@@ -78,6 +78,9 @@ class SelfSupervisedRegressionSettings(ez.Settings):
     channel_clusters: list[list[int]] | None = None
     """Per-cluster regression.  ``None`` treats all channels as one cluster."""
 
+    block_size: int | None = None
+    """If ``channel_clusters`` is ``None``, use this block size for an automatic clustering."""
+
     ridge_lambda: float = 0.0
     """Ridge (L2) regularisation parameter."""
 
@@ -137,9 +140,18 @@ class SelfSupervisedRegressionTransformer(
 
     # -- cluster validation --------------------------------------------------
 
+    def _get_channel_clusters(self, n_channels: int) -> list[list[int]] | None:
+        clusters = self.settings.channel_clusters
+        if clusters is None and self.settings.block_size is not None:
+            clusters = [
+                list(range(i, min(i + self.settings.block_size, n_channels)))
+                for i in range(0, n_channels, self.settings.block_size)
+            ]
+        return clusters
+
     def _validate_clusters(self, n_channels: int) -> None:
         """Raise if any cluster index is out of range."""
-        clusters = self.settings.channel_clusters
+        clusters = self._get_channel_clusters(n_channels)
         if clusters is None:
             return
         all_indices = np.concatenate([np.asarray(g) for g in clusters])
@@ -168,7 +180,7 @@ class SelfSupervisedRegressionTransformer(
         dev = array_device(cxx)
         n = cxx.shape[0]
 
-        clusters = self.settings.channel_clusters
+        clusters = self._get_channel_clusters(n)
         if clusters is None:
             clusters = [list(range(n))]
 
@@ -330,7 +342,7 @@ class LRRTransformer(
                 AffineTransformSettings(
                     weights=effective,
                     axis=self.settings.axis,
-                    channel_clusters=self.settings.channel_clusters,
+                    channel_clusters=self._get_channel_clusters(n),
                     min_cluster_size=self.settings.min_cluster_size,
                 )
             )
@@ -339,8 +351,20 @@ class LRRTransformer(
 
     def _process(self, message: AxisArray) -> AxisArray:
         if self._state.affine is None:
-            raise RuntimeError(
-                "LRRTransformer has not been fitted. Call partial_fit() or provide pre-calculated weights."
+            axis = self.settings.axis or message.dims[-1]
+            axis_idx = message.get_axis_idx(axis)
+            n_channels = message.data.shape[axis_idx]
+
+            xp = get_namespace(message.data)
+            dev = array_device(message.data)
+            effective = xp_create(xp.eye, n_channels, dtype=message.data.dtype, device=dev)
+            self._state.affine = AffineTransformTransformer(
+                AffineTransformSettings(
+                    weights=effective,
+                    axis=self.settings.axis,
+                    channel_clusters=self._get_channel_clusters(n_channels),
+                    min_cluster_size=self.settings.min_cluster_size,
+                )
             )
         return self._state.affine(message)
 
