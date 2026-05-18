@@ -1,11 +1,15 @@
 """Flatten with time-lag-windowing struct semantics.
 
 Thin wrapper around :class:`ezmsg.sigproc.flatten.FlattenTransformer`
-that detects the windowed-feature case (``(win, time, ch)`` 3-D input)
-and attaches a structured ``lag`` :class:`CoordinateAxis` to the inner
-sample dim before delegating.  The output merged-axis struct then
-carries a real integer ``lag`` field alongside ``ch``, and sigproc's
-canonical ``label`` field composes naturally (e.g. ``"t-2/c0"``).
+that detects the windowed-feature case (any input with both the
+preserve dim — typically ``"win"`` — and a ``"time"`` lag dim alongside
+a labeled feature axis) and attaches a structured ``lag``
+:class:`CoordinateAxis` to the inner sample dim before delegating.  The
+output merged-axis struct then carries a real integer ``lag`` field
+alongside the remaining feature dims, and sigproc's canonical ``label``
+field composes naturally (e.g. ``"t-2/c0"`` for 3-D
+``(win, time, ch)`` or ``"t-2/c0/spk"`` for 4-D
+``(win, time, ch, feature)``).
 
 Outside the lag case this module delegates unchanged — prefer
 :class:`ezmsg.sigproc.flatten.Flatten` directly for the general
@@ -65,21 +69,24 @@ def _lag_sample_dim(
     preserve_axis: str,
     feature_axis: str,
 ) -> str | None:
-    """Return the inner sample-dim name if the input matches
-    ``(preserve, sample, feature)`` with a labeled feature axis; else None.
+    """Return the inner sample-dim name if the input carries both
+    ``preserve_axis`` (typically ``"win"``) and a ``"time"`` lag dim
+    alongside a labeled ``feature_axis``; else ``None``.
+
+    Works for 3-D ``(win, time, ch)`` and for higher-rank inputs such as
+    ``(win, time, ch, feature)`` — any extra feature-like dims are
+    folded into the merged axis by the caller via ``flatten_axes``.
     """
     if (
-        message.data.ndim != 3
-        or message.dims[0] != preserve_axis
+        preserve_axis not in message.dims
+        or "time" not in message.dims
+        or "time" in (preserve_axis, feature_axis)
         or feature_axis not in message.dims
         or feature_axis not in message.axes
         or not hasattr(message.axes[feature_axis], "data")
     ):
         return None
-    return next(
-        (d for d in message.dims if d not in (preserve_axis, feature_axis)),
-        None,
-    )
+    return "time"
 
 
 def _build_lag_axis(sample_dim: str, sample_size: int) -> CoordinateAxis:
@@ -129,10 +136,13 @@ class FlattenTransformer(BaseStatefulTransformer[FlattenSettings, AxisArray, Axi
         if sample_dim is not None:
             sample_size = message.data.shape[message.dims.index(sample_dim)]
             lag_axis = _build_lag_axis(sample_dim, sample_size)
-            # Lock in (sample-slow, feature-fast) ordering so the
-            # cartesian-product expansion matches the C-order reshape
-            # (oldest lag first within each window).
-            flatten_axes = (sample_dim, feature_axis)
+            # Fold all non-preserve dims in their original input order so
+            # the merged axis matches the natural C-order reshape — for
+            # the canonical ``(win, time, ch[, feature])`` input this is
+            # ``(time, ch[, feature])`` with sample slowest and any
+            # extra feature dim fastest, mirroring the offline training
+            # window flatten.
+            flatten_axes = tuple(d for d in message.dims if d != preserve_axis)
 
         self._state.inner = SigprocFlattenTransformer(
             SigprocFlattenSettings(
