@@ -110,7 +110,7 @@ class SklearnModelProcessor(BaseAdaptiveTransformer[SklearnModelSettings, AxisAr
                 kwargs["classes"] = self.settings.partial_fit_classes
             self._state.model.partial_fit(X, y, **kwargs)
         elif hasattr(self._state.model, "learn_many"):
-            df_X = pd.DataFrame({k: v for k, v in zip(message.axes["ch"].data, message.data.T)})
+            df_X = pd.DataFrame(message.data, columns=[f"f{i}" for i in range(message.data.shape[1])])
             name = (
                 message.attrs["trigger"].value.axes["ch"].data[0]
                 if hasattr(message.attrs["trigger"].value, "axes") and "ch" in message.attrs["trigger"].value.axes

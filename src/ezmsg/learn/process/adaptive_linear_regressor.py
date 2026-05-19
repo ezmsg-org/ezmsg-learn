@@ -171,7 +171,7 @@ class AdaptiveLinearRegressorTransformer(
         ]:
             # river path: needs numpy/pandas
             data_np = np.asarray(message.data) if not is_numpy_array(message.data) else message.data
-            x = pd.DataFrame(data_np, columns=_axis_labels(message.axes["ch"].data))
+            x = pd.DataFrame(data_np, columns=[f"f{i}" for i in range(data_np.shape[1])])
             targets = message.attrs["trigger"].value
             target_np = np.asarray(targets.data)
             if target_np.ndim == 1:
@@ -219,7 +219,7 @@ class AdaptiveLinearRegressorTransformer(
             ]:
                 # river path: needs numpy/pandas
                 data_np = np.asarray(message.data) if not is_numpy_array(message.data) else message.data
-                x = pd.DataFrame(data_np, columns=_axis_labels(message.axes["ch"].data))
+                x = pd.DataFrame(data_np, columns=[f"f{i}" for i in range(data_np.shape[1])])
                 n_outputs = len(self.state.model) if isinstance(self.state.model, dict) else 1
                 out_labels = self._prediction_labels(n_outputs)
                 if isinstance(self.state.model, dict):
