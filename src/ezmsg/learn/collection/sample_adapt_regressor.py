@@ -78,7 +78,10 @@ class SampleAdaptRegressor(ez.Collection):
                 newaxis="win",
                 window_dur=self.SETTINGS.decode_window_dur,
                 window_shift=self.SETTINGS.decode_window_shift,
-                zero_pad_until="none",
+                # Window requires zero_pad_until="input" when window_shift is
+                # None (1:1 mode, e.g. no inference-side windowing); using
+                # "none" there only logs a warning and is coerced to "input".
+                zero_pad_until="none" if self.SETTINGS.decode_window_shift is not None else "input",
             )
         )
         self.FLATTEN.apply_settings(
