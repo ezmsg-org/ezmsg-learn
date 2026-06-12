@@ -12,6 +12,7 @@ dependencies = [
     "ezmsg>=3.9.0",
     "ezmsg-baseproc>=1.7.0",
     "ezmsg-sigproc>=2.23.0",
+    "pandas>=2.2",
     "river>=0.22.0",
     "scikit-learn>=1.6.0",
     "torch>=2.6.0",
