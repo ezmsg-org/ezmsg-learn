@@ -101,14 +101,22 @@ class DecodeOutputAdapterProcessor(
                 data=np.asarray([f"ch{i}" for i in range(data.shape[-1])]), dims=["ch"]
             )
 
-        axes = {"ch": ch_axis}
-        if "time" in message.axes:
-            axes["time"] = message.axes["time"]
+        # The decoder engines carry a ``time`` axis through (kalman keeps the
+        # input's; the torch path inherits the windower's renamed ``win``->``time``
+        # axis). Require it rather than silently emitting untimed samples — a
+        # missing time axis means the upstream layout changed and downstream
+        # timing/outlet behavior would be wrong.
+        if "time" not in message.axes:
+            raise ValueError(
+                "DecodeOutputAdapter expected a 'time' axis on the decoder output "
+                f"(got dims={message.dims}, axes={list(message.axes)}); the upstream "
+                "windowing/regressor layout changed."
+            )
         return replace(
             message,
             data=data,
             dims=["time", "ch"],
-            axes=axes,
+            axes={"ch": ch_axis, "time": message.axes["time"]},
             key=f"{message.key}_pred",
         )
 
@@ -173,131 +181,158 @@ class SampleAdaptRegressorSettings(ez.Settings):
     """Optional inference-side feature window shift in seconds."""
 
 
-class SampleAdaptRegressor(ez.Collection):
-    SETTINGS = SampleAdaptRegressorSettings
+def _build_regressor_unit(settings: SampleAdaptRegressorSettings):
+    """Factory: construct the single regressor unit for ``settings.model_type``.
 
-    INPUT_LABELS = ez.InputTopic(AxisArray)
-    INPUT_SIGNAL = ez.InputTopic(AxisArray)
-    INPUT_TRIGGER = ez.InputTopic(SampleTriggerMessage)
-    OUTPUT_SIGNAL = ez.OutputTopic(AxisArray)
+    Returns ``(unit, backend)`` where ``backend`` is ``"linear"`` (River/sklearn
+    via :class:`AdaptiveLinearRegressorUnit`), ``"torch"`` (mlp), or ``"kalman"``.
+    """
+    backend = _model_backend(settings.model_type)
+    if backend == "torch":
+        return TorchModelUnit(), backend
+    if backend == "kalman":
+        return RefitKalmanFilterUnit(), backend
+    return AdaptiveLinearRegressorUnit(), backend
 
-    RESAMPLE = ResampleUnit()
-    SEQSEQSAMPLER = SeqSeqSamplerUnit()
-    WINDOW = Window()
-    FLATTEN = Flatten()
-    REGRESSOR = AdaptiveLinearRegressorUnit()
-    # Alternate engines for mlp/kalman. Declared unconditionally; only the one
-    # matching model_type is wired in network() — the others stay inert.
-    TORCH_REGRESSOR = TorchModelUnit()
-    KALMAN_REGRESSOR = RefitKalmanFilterUnit()
-    ADAPTER = DecodeOutputAdapter()
 
-    def _backend(self) -> str:
-        return _model_backend(self.SETTINGS.model_type)
+def build_sample_adapt_regressor(
+    settings: SampleAdaptRegressorSettings,
+) -> ez.Collection:
+    """Build a decode collection wired around a single regressor engine.
 
-    def configure(self) -> None:
-        backend = self._backend()
-        self.RESAMPLE.apply_settings(
-            ResampleSettings(
-                axis=self.SETTINGS.resample_axis,
-                max_chunk_delay=float("inf"),
-                fill_value="extrapolate",
-                buffer_duration=self.SETTINGS.resample_buffer_duration,
-            )
-        )
-        self.SEQSEQSAMPLER.apply_settings(
-            SeqSeqSamplerSettings(
-                max_buffer_dur=self.SETTINGS.sampler_max_buffer_dur,
-            )
-        )
-        self.WINDOW.apply_settings(
-            WindowSettings(
-                axis="time",
-                newaxis="win",
-                window_dur=self.SETTINGS.decode_window_dur,
-                window_shift=self.SETTINGS.decode_window_shift,
-                # Window requires zero_pad_until="input" when window_shift is
-                # None (1:1 mode, e.g. no inference-side windowing); using
-                # "none" there only logs a warning and is coerced to "input".
-                zero_pad_until="none" if self.SETTINGS.decode_window_shift is not None else "input",
-            )
-        )
-        self.FLATTEN.apply_settings(
-            FlattenSettings(
-                preserve_axis="win",
-                sample_axis="time",
-                feature_axis="ch",
-            )
-        )
-        # The linear engine carries model_type through; for mlp/kalman it is
-        # declared-but-unwired, so give it a benign model_type that is a valid
-        # AdaptiveLinearRegressor and no checkpoint (keeps it inert).
-        self.REGRESSOR.apply_settings(
-            AdaptiveLinearRegressorSettings(
-                model_type=self.SETTINGS.model_type
-                if backend == "linear"
-                else AdaptiveLinearRegressor.LINEAR,
-                settings_path=self.SETTINGS.model_path if backend == "linear" else None,
-                model_kwargs=self.SETTINGS.model_kwargs,
-            )
-        )
-        self.TORCH_REGRESSOR.apply_settings(
-            TorchModelSettings(
-                model_class=self.SETTINGS.model_class,
-                checkpoint_path=self.SETTINGS.model_path if backend == "torch" else None,
-                model_kwargs=dict(self.SETTINGS.model_kwargs),
-                device=self.SETTINGS.device,
-            )
-        )
-        self.KALMAN_REGRESSOR.apply_settings(
-            RefitKalmanFilterSettings(
-                checkpoint_path=self.SETTINGS.model_path if backend == "kalman" else None,
-                steady_state=self.SETTINGS.steady_state,
-            )
-        )
-        self.ADAPTER.apply_settings(
-            DecodeOutputAdapterSettings(output_labels=self.SETTINGS.output_labels)
-        )
+    The regressor backend (River/sklearn, torch-mlp, or refit-Kalman) is selected
+    from ``settings.model_type`` and the collection class is defined dynamically
+    so the graph contains exactly the units that backend uses — no inert,
+    declared-but-unwired units. The signal path (and, for the linear engine, the
+    online-adaptation sample path) wire to that one unit, so there is no per-
+    backend wiring to keep in sync.
+    """
+    regressor, backend = _build_regressor_unit(settings)
+    use_window = settings.decode_window_dur is not None
+    use_sample_path = backend == "linear"  # online-adaptation path (River/sklearn)
+    needs_adapter = backend != "linear"  # torch/kalman outputs need normalizing
 
-    def network(self) -> ez.NetworkDefinition:
-        backend = self._backend()
+    class SampleAdaptRegressor(ez.Collection):
+        SETTINGS = SampleAdaptRegressorSettings
 
-        network = []
-        if backend == "linear":
-            # Online-adaptation sample path (River/sklearn only).
-            network.extend(
-                [
-                    (self.INPUT_LABELS, self.RESAMPLE.INPUT_SIGNAL),
-                    (self.INPUT_SIGNAL, self.RESAMPLE.INPUT_REFERENCE),
-                    (self.RESAMPLE.OUTPUT_SIGNAL, self.SEQSEQSAMPLER.INPUT_VALUE),
-                    (self.INPUT_SIGNAL, self.SEQSEQSAMPLER.INPUT_SIGNAL),
-                    (self.INPUT_TRIGGER, self.SEQSEQSAMPLER.INPUT_TRIGGER),
-                    (self.SEQSEQSAMPLER.OUTPUT_SAMPLE, self.REGRESSOR.INPUT_SAMPLE),
-                ]
-            )
-            regressor = self.REGRESSOR
-        elif backend == "torch":
-            regressor = self.TORCH_REGRESSOR
-        else:
-            regressor = self.KALMAN_REGRESSOR
+        INPUT_LABELS = ez.InputTopic(AxisArray)
+        INPUT_SIGNAL = ez.InputTopic(AxisArray)
+        INPUT_TRIGGER = ez.InputTopic(SampleTriggerMessage)
+        OUTPUT_SIGNAL = ez.OutputTopic(AxisArray)
 
-        if self.SETTINGS.decode_window_dur is None:
-            network.append((self.INPUT_SIGNAL, regressor.INPUT_SIGNAL))
-        else:
-            network.extend(
-                [
-                    (self.INPUT_SIGNAL, self.WINDOW.INPUT_SIGNAL),
-                    (self.WINDOW.OUTPUT_SIGNAL, self.FLATTEN.INPUT_SIGNAL),
-                    (self.FLATTEN.OUTPUT_SIGNAL, regressor.INPUT_SIGNAL),
-                ]
-            )
+        REGRESSOR = regressor
+        if use_window:
+            WINDOW = Window()
+            FLATTEN = Flatten()
+        if use_sample_path:
+            RESAMPLE = ResampleUnit()
+            SEQSEQSAMPLER = SeqSeqSamplerUnit()
+        if needs_adapter:
+            ADAPTER = DecodeOutputAdapter()
 
-        # The River/sklearn regressor already emits the canonical (time, ch)
-        # ``_pred`` contract; the torch/kalman engines need the adapter to match.
-        if backend == "linear":
-            network.append((regressor.OUTPUT_SIGNAL, self.OUTPUT_SIGNAL))
-        else:
-            network.append((regressor.OUTPUT_SIGNAL, self.ADAPTER.INPUT_SIGNAL))
-            network.append((self.ADAPTER.OUTPUT_SIGNAL, self.OUTPUT_SIGNAL))
+        def configure(self) -> None:
+            if backend == "linear":
+                self.REGRESSOR.apply_settings(
+                    AdaptiveLinearRegressorSettings(
+                        model_type=self.SETTINGS.model_type,
+                        settings_path=self.SETTINGS.model_path,
+                        model_kwargs=self.SETTINGS.model_kwargs,
+                    )
+                )
+            elif backend == "torch":
+                self.REGRESSOR.apply_settings(
+                    TorchModelSettings(
+                        model_class=self.SETTINGS.model_class,
+                        checkpoint_path=self.SETTINGS.model_path,
+                        model_kwargs=dict(self.SETTINGS.model_kwargs),
+                        device=self.SETTINGS.device,
+                    )
+                )
+            else:
+                self.REGRESSOR.apply_settings(
+                    RefitKalmanFilterSettings(
+                        checkpoint_path=self.SETTINGS.model_path,
+                        steady_state=self.SETTINGS.steady_state,
+                    )
+                )
 
-        return tuple(network)
+            if use_window:
+                self.WINDOW.apply_settings(
+                    WindowSettings(
+                        axis="time",
+                        newaxis="win",
+                        window_dur=self.SETTINGS.decode_window_dur,
+                        window_shift=self.SETTINGS.decode_window_shift,
+                        # Window requires zero_pad_until="input" when
+                        # window_shift is None (1:1 mode); "none" there only
+                        # warns and is coerced to "input".
+                        zero_pad_until="none"
+                        if self.SETTINGS.decode_window_shift is not None
+                        else "input",
+                    )
+                )
+                self.FLATTEN.apply_settings(
+                    FlattenSettings(
+                        preserve_axis="win",
+                        sample_axis="time",
+                        feature_axis="ch",
+                    )
+                )
+            if use_sample_path:
+                self.RESAMPLE.apply_settings(
+                    ResampleSettings(
+                        axis=self.SETTINGS.resample_axis,
+                        max_chunk_delay=float("inf"),
+                        fill_value="extrapolate",
+                        buffer_duration=self.SETTINGS.resample_buffer_duration,
+                    )
+                )
+                self.SEQSEQSAMPLER.apply_settings(
+                    SeqSeqSamplerSettings(
+                        max_buffer_dur=self.SETTINGS.sampler_max_buffer_dur,
+                    )
+                )
+            if needs_adapter:
+                self.ADAPTER.apply_settings(
+                    DecodeOutputAdapterSettings(
+                        output_labels=self.SETTINGS.output_labels
+                    )
+                )
+
+        def network(self) -> ez.NetworkDefinition:
+            network = []
+            if use_sample_path:
+                # Online-adaptation sample path (River/sklearn only).
+                network.extend(
+                    [
+                        (self.INPUT_LABELS, self.RESAMPLE.INPUT_SIGNAL),
+                        (self.INPUT_SIGNAL, self.RESAMPLE.INPUT_REFERENCE),
+                        (self.RESAMPLE.OUTPUT_SIGNAL, self.SEQSEQSAMPLER.INPUT_VALUE),
+                        (self.INPUT_SIGNAL, self.SEQSEQSAMPLER.INPUT_SIGNAL),
+                        (self.INPUT_TRIGGER, self.SEQSEQSAMPLER.INPUT_TRIGGER),
+                        (self.SEQSEQSAMPLER.OUTPUT_SAMPLE, self.REGRESSOR.INPUT_SAMPLE),
+                    ]
+                )
+
+            if use_window:
+                network.extend(
+                    [
+                        (self.INPUT_SIGNAL, self.WINDOW.INPUT_SIGNAL),
+                        (self.WINDOW.OUTPUT_SIGNAL, self.FLATTEN.INPUT_SIGNAL),
+                        (self.FLATTEN.OUTPUT_SIGNAL, self.REGRESSOR.INPUT_SIGNAL),
+                    ]
+                )
+            else:
+                network.append((self.INPUT_SIGNAL, self.REGRESSOR.INPUT_SIGNAL))
+
+            # River/sklearn already emits the canonical (time, ch) ``_pred``
+            # contract; torch/kalman route through the adapter to match it.
+            if needs_adapter:
+                network.append((self.REGRESSOR.OUTPUT_SIGNAL, self.ADAPTER.INPUT_SIGNAL))
+                network.append((self.ADAPTER.OUTPUT_SIGNAL, self.OUTPUT_SIGNAL))
+            else:
+                network.append((self.REGRESSOR.OUTPUT_SIGNAL, self.OUTPUT_SIGNAL))
+
+            return tuple(network)
+
+    return SampleAdaptRegressor(settings=settings)
