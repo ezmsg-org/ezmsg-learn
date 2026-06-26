@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from ezmsg.sigproc.window import WindowSettings, WindowTransformer
 from ezmsg.util.messages.axisarray import AxisArray
 
 from ezmsg.learn.collection.sample_adapt_regressor import (
@@ -10,6 +11,7 @@ from ezmsg.learn.collection.sample_adapt_regressor import (
     build_sample_adapt_regressor,
 )
 from ezmsg.learn.process.adaptive_linear_regressor import AdaptiveLinearRegressorUnit
+from ezmsg.learn.process.flatten import FlattenSettings, FlattenTransformer
 from ezmsg.learn.process.refit_kalman import RefitKalmanFilterUnit
 from ezmsg.learn.process.torch import TorchModelUnit
 
@@ -141,9 +143,7 @@ def _adapter_message(data, *, dims, with_time=True, key="dec"):
 def test_adapter_normalizes_output_to_time_ch():
     # Kalman-style output: (time, state) with state_dim == len(output_labels).
     proc = DecodeOutputAdapterProcessor(output_labels=["vx", "vy"])
-    message = _adapter_message(
-        np.arange(8).reshape(4, 2), dims=["time", "state"], key="kf"
-    )
+    message = _adapter_message(np.arange(8).reshape(4, 2), dims=["time", "state"], key="kf")
 
     result = proc(message)
 
@@ -155,9 +155,68 @@ def test_adapter_normalizes_output_to_time_ch():
 
 def test_adapter_requires_time_axis():
     proc = DecodeOutputAdapterProcessor(output_labels=["vx", "vy"])
-    message = _adapter_message(
-        np.arange(2).reshape(1, 2), dims=["win", "ch"], with_time=False
-    )
+    message = _adapter_message(np.arange(2).reshape(1, 2), dims=["win", "ch"], with_time=False)
 
     with pytest.raises(ValueError, match="time"):
         proc(message)
+
+
+# --- windowed path integration ----------------------------------------------
+
+
+def test_windowed_path_renames_win_to_time_and_feeds_adapter():
+    """End-to-end check of the windowed mlp/kalman feature path.
+
+    The adapter's ``time``-axis guard is only safe because Window + the
+    learn-side Flatten rename the window axis (``win``) to ``time`` on output.
+    This chains the real Window -> Flatten -> adapter processors with the exact
+    settings ``configure()`` applies for the windowed path, so a future change
+    to Flatten's ``sample_axis`` semantics would fail here instead of only
+    surfacing at runtime. The torch/kalman engine in between preserves
+    ``message.axes``, so feeding the flattened output straight to the adapter
+    exercises the same time-axis plumbing.
+    """
+    fs = 100.0
+    window_dur, window_shift = 0.2, 0.01
+    n_time, n_ch = 60, 3
+    sig = AxisArray(
+        data=np.arange(n_time * n_ch, dtype=float).reshape(n_time, n_ch),
+        dims=["time", "ch"],
+        axes={
+            "time": AxisArray.TimeAxis(fs=fs, offset=0.0),
+            "ch": AxisArray.CoordinateAxis(data=np.array(["c0", "c1", "c2"]), dims=["ch"]),
+        },
+        key="neural",
+    )
+
+    # Settings mirror SampleAdaptRegressor.configure() for the windowed branch.
+    windower = WindowTransformer(
+        WindowSettings(
+            axis="time",
+            newaxis="win",
+            window_dur=window_dur,
+            window_shift=window_shift,
+            zero_pad_until="none",
+        )
+    )
+    flatten = FlattenTransformer(FlattenSettings(preserve_axis="win", sample_axis="time", feature_axis="ch"))
+    adapter = DecodeOutputAdapterProcessor(output_labels=None)
+
+    windowed = windower(sig)
+    assert windowed.dims == ["win", "time", "ch"]
+
+    flat = flatten(windowed)
+    # The window axis is preserved but renamed to "time"; the inner lag dim and
+    # channels fold into the feature axis.
+    assert flat.dims == ["time", "ch"]
+    assert "time" in flat.axes
+    # The renamed axis carries the window-rate cadence (one sample per shift),
+    # not the original 100 Hz sample rate.
+    assert flat.axes["time"].gain == pytest.approx(window_shift)
+
+    # The adapter accepts the windowed output (no raise) and emits the contract.
+    result = adapter(flat)
+    assert result.dims == ["time", "ch"]
+    assert result.data.shape[0] == flat.data.shape[0]
+    assert result.key == "neural_pred"
+    assert result.axes["time"].gain == pytest.approx(window_shift)
