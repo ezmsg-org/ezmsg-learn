@@ -58,6 +58,7 @@ from ezmsg.sigproc.affinetransform import (
     AffineTransformTransformer,
 )
 from ezmsg.sigproc.util.array import array_device, xp_create
+from ezmsg.sigproc.util.channels import channel_clusters_from_field
 from ezmsg.util.messages.axisarray import AxisArray
 
 # ---------------------------------------------------------------------------
@@ -78,6 +79,13 @@ class SelfSupervisedRegressionSettings(ez.Settings):
     channel_clusters: list[list[int]] | None = None
     """Per-cluster regression.  ``None`` treats all channels as one cluster."""
 
+    cluster_by_field: str | None = None
+    """Derive ``channel_clusters`` automatically from a structured field of the
+    channel coordinate axis (e.g. ``"bank"`` to regress within each electrode
+    bank). Used only when ``channel_clusters`` is None and the axis actually
+    carries that field; otherwise falls back to ``block_size`` (then a single
+    cluster). Explicit ``channel_clusters`` always takes precedence."""
+
     block_size: int | None = None
     """If ``channel_clusters`` is ``None``, use this block size for an automatic clustering."""
 
@@ -94,6 +102,9 @@ class SelfSupervisedRegressionState:
     cxx: object | None = None  # Array API; namespace matches source data.
     n_samples: int = 0
     weights: object | None = None  # Array API; namespace matches cxx.
+    resolved_clusters: list | None = None
+    """Clusters derived from ``cluster_by_field`` at reset (message-dependent),
+    cached so ``_get_channel_clusters`` can return them without the message."""
 
 
 class SelfSupervisedRegressionTransformer(
@@ -115,12 +126,33 @@ class SelfSupervisedRegressionTransformer(
     def _hash_message(self, message: AxisArray) -> int:
         axis = self.settings.axis or message.dims[-1]
         axis_idx = message.get_axis_idx(axis)
-        return hash((message.key, message.data.shape[axis_idx]))
+        components: tuple = (message.key, message.data.shape[axis_idx])
+        # When clusters are derived from a structured channel-axis field, the
+        # cached clusters go stale if that field's values change even though the
+        # key and channel count are unchanged. Fold the field's bytes into the
+        # hash so the state re-derives. Scoped to the cluster_by_field path so
+        # the common (no-field) case pays nothing; the cost is O(channels) once
+        # per message, far below the regression compute.
+        if self.settings.channel_clusters is None and self.settings.cluster_by_field is not None:
+            ax = message.axes.get(axis)
+            data = getattr(ax, "data", None)
+            names = getattr(getattr(data, "dtype", None), "names", None)
+            if data is not None and names and self.settings.cluster_by_field in names:
+                components += (data[self.settings.cluster_by_field].tobytes(),)
+        return hash(components)
 
     def _reset_state(self, message: AxisArray) -> None:
         axis = self.settings.axis or message.dims[-1]
         axis_idx = message.get_axis_idx(axis)
         n_channels = message.data.shape[axis_idx]
+
+        # Derive clusters from a structured channel-axis field (e.g. "bank") when
+        # requested and no explicit clusters were given. Cached so the
+        # message-less _get_channel_clusters can return them later.
+        if self.settings.channel_clusters is None and self.settings.cluster_by_field is not None:
+            self._state.resolved_clusters = channel_clusters_from_field(message, axis, self.settings.cluster_by_field)
+        else:
+            self._state.resolved_clusters = None
 
         self._validate_clusters(n_channels)
         self._state.cxx = None
@@ -141,7 +173,11 @@ class SelfSupervisedRegressionTransformer(
     # -- cluster validation --------------------------------------------------
 
     def _get_channel_clusters(self, n_channels: int) -> list[list[int]] | None:
+        # Precedence: explicit channel_clusters > cluster_by_field-derived
+        # (cached at reset) > block_size > None (single cluster).
         clusters = self.settings.channel_clusters
+        if clusters is None:
+            clusters = getattr(self._state, "resolved_clusters", None)
         if clusters is None and self.settings.block_size is not None:
             clusters = [
                 list(range(i, min(i + self.settings.block_size, n_channels)))
