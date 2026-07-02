@@ -126,6 +126,93 @@ class TestChannelClusters:
             assert np.any(off_diag != 0), "Expected non-zero within-cluster weights"
 
 
+def _banked_axisarray(data: np.ndarray, banks: list[str], key: str = "test") -> AxisArray:
+    """AxisArray whose ch axis is a structured CoordinateAxis with a bank field,
+    like ezmsg-blackrock ChannelMap emits."""
+    dt = np.dtype([("label", "U16"), ("bank", "U1"), ("elec", "i4")])
+    ch = np.zeros(len(banks), dtype=dt)
+    ch["bank"] = banks
+    ch["elec"] = list(range(1, len(banks) + 1))
+    ch["label"] = [f"ch{i}" for i in range(len(banks))]
+    return AxisArray(
+        data=data,
+        dims=["time", "ch"],
+        axes={"time": AxisArray.TimeAxis(fs=100.0, offset=0.0), "ch": AxisArray.CoordinateAxis(data=ch, dims=["ch"])},
+        key=key,
+    )
+
+
+class TestClusterByField:
+    def test_bank_field_matches_explicit_clusters(self):
+        """cluster_by_field='bank' derives the same clusters (and weights) as
+        passing the equivalent explicit channel_clusters."""
+        rng = np.random.default_rng(7)
+        banks = ["A", "A", "A", "A", "B", "B", "B", "B"]
+        X = _random_data(n_ch=len(banks), rng=rng)
+
+        proc_field = LRRTransformer(LRRSettings(axis="ch", cluster_by_field="bank"))
+        proc_field.partial_fit(_banked_axisarray(X, banks))
+
+        proc_explicit = LRRTransformer(LRRSettings(axis="ch", channel_clusters=[[0, 1, 2, 3], [4, 5, 6, 7]]))
+        proc_explicit.partial_fit(_make_axisarray(X))
+
+        np.testing.assert_array_equal(proc_field.state.weights, proc_explicit.state.weights)
+        # And cross-bank weights are zero
+        W = proc_field.state.weights
+        np.testing.assert_array_equal(W[np.ix_([0, 1, 2, 3], [4, 5, 6, 7])], 0.0)
+
+    def test_explicit_clusters_take_precedence(self):
+        """Explicit channel_clusters win over cluster_by_field."""
+        rng = np.random.default_rng(8)
+        banks = ["A", "A", "A", "A", "B", "B", "B", "B"]
+        X = _random_data(n_ch=len(banks), rng=rng)
+
+        # One all-channel cluster should override the bank grouping.
+        proc = LRRTransformer(LRRSettings(axis="ch", channel_clusters=[list(range(8))], cluster_by_field="bank"))
+        proc.partial_fit(_banked_axisarray(X, banks))
+        # With a single cluster, cross-"bank" weights are NOT forced to zero.
+        W = proc.state.weights
+        assert np.any(W[np.ix_([0, 1, 2, 3], [4, 5, 6, 7])] != 0)
+
+    def test_missing_field_falls_back_to_block_size(self):
+        """cluster_by_field with no structured bank field falls back to block_size."""
+        rng = np.random.default_rng(9)
+        n_ch = 8
+        X = _random_data(n_ch=n_ch, rng=rng)
+        # Plain axis (no structured bank field) + block_size=4 -> two contiguous blocks.
+        proc_field = LRRTransformer(LRRSettings(axis="ch", cluster_by_field="bank", block_size=4))
+        proc_field.partial_fit(_make_axisarray(X))
+
+        proc_block = LRRTransformer(LRRSettings(axis="ch", block_size=4))
+        proc_block.partial_fit(_make_axisarray(X))
+
+        np.testing.assert_array_equal(proc_field.state.weights, proc_block.state.weights)
+
+    def test_bank_field_value_change_is_not_detected(self):
+        """Intentional concession (mirrors the ezmsg-sigproc CAR fix): a live bank
+        remap at fixed key + channel count is NOT re-derived. ``_hash_message``
+        folds only an O(1) "bank field present" boolean, not the field's bytes, so
+        the per-message hash does not scale with channel count. A genuine remap on
+        real hardware arrives with a new key or channel count (escape hatch below)."""
+        rng = np.random.default_rng(11)
+        X = _random_data(n_ch=4, rng=rng)
+        proc = LRRTransformer(LRRSettings(axis="ch", cluster_by_field="bank"))
+
+        # First arrangement: banks A,A,B,B -> clusters {0,1},{2,3}.
+        proc.partial_fit(_banked_axisarray(X, ["A", "A", "B", "B"], key="x"))
+        assert proc.state.resolved_clusters == [[0, 1], [2, 3]]
+        np.testing.assert_array_equal(proc.state.weights[np.ix_([0, 1], [2, 3])], 0.0)
+
+        # Same key + channel count, different banks -> hash unchanged, so the
+        # cached clusters are (deliberately) NOT re-derived.
+        proc.partial_fit(_banked_axisarray(X, ["A", "B", "A", "B"], key="x"))
+        assert proc.state.resolved_clusters == [[0, 1], [2, 3]]
+
+        # Escape hatch: a new key (as a real remap would carry) forces re-derivation.
+        proc.partial_fit(_banked_axisarray(X, ["A", "B", "A", "B"], key="y"))
+        assert proc.state.resolved_clusters == [[0, 2], [1, 3]]
+
+
 class TestIncrementalAccumulates:
     def test_incremental_accumulates(self):
         """Two partial_fits with incremental=True should match one fit on concatenated data."""
