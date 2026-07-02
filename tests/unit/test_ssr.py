@@ -168,9 +168,7 @@ class TestClusterByField:
         X = _random_data(n_ch=len(banks), rng=rng)
 
         # One all-channel cluster should override the bank grouping.
-        proc = LRRTransformer(
-            LRRSettings(axis="ch", channel_clusters=[list(range(8))], cluster_by_field="bank")
-        )
+        proc = LRRTransformer(LRRSettings(axis="ch", channel_clusters=[list(range(8))], cluster_by_field="bank"))
         proc.partial_fit(_banked_axisarray(X, banks))
         # With a single cluster, cross-"bank" weights are NOT forced to zero.
         W = proc.state.weights
@@ -190,11 +188,12 @@ class TestClusterByField:
 
         np.testing.assert_array_equal(proc_field.state.weights, proc_block.state.weights)
 
-    def test_clusters_re_derive_when_bank_field_changes(self):
-        """A new message with the same key and channel count but different bank
-        assignments must re-derive clusters. This only happens because
-        ``_hash_message`` folds the bank field into the hash; without it the
-        cached clusters (and their zeroed cross-bank weights) would go stale."""
+    def test_bank_field_value_change_is_not_detected(self):
+        """Intentional concession (mirrors the ezmsg-sigproc CAR fix): a live bank
+        remap at fixed key + channel count is NOT re-derived. ``_hash_message``
+        folds only an O(1) "bank field present" boolean, not the field's bytes, so
+        the per-message hash does not scale with channel count. A genuine remap on
+        real hardware arrives with a new key or channel count (escape hatch below)."""
         rng = np.random.default_rng(11)
         X = _random_data(n_ch=4, rng=rng)
         proc = LRRTransformer(LRRSettings(axis="ch", cluster_by_field="bank"))
@@ -204,10 +203,14 @@ class TestClusterByField:
         assert proc.state.resolved_clusters == [[0, 1], [2, 3]]
         np.testing.assert_array_equal(proc.state.weights[np.ix_([0, 1], [2, 3])], 0.0)
 
-        # Same key, same channel count, different banks A,B,A,B -> {0,2},{1,3}.
+        # Same key + channel count, different banks -> hash unchanged, so the
+        # cached clusters are (deliberately) NOT re-derived.
         proc.partial_fit(_banked_axisarray(X, ["A", "B", "A", "B"], key="x"))
+        assert proc.state.resolved_clusters == [[0, 1], [2, 3]]
+
+        # Escape hatch: a new key (as a real remap would carry) forces re-derivation.
+        proc.partial_fit(_banked_axisarray(X, ["A", "B", "A", "B"], key="y"))
         assert proc.state.resolved_clusters == [[0, 2], [1, 3]]
-        np.testing.assert_array_equal(proc.state.weights[np.ix_([0, 2], [1, 3])], 0.0)
 
 
 class TestIncrementalAccumulates:

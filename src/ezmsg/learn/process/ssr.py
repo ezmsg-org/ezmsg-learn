@@ -127,18 +127,20 @@ class SelfSupervisedRegressionTransformer(
         axis = self.settings.axis or message.dims[-1]
         axis_idx = message.get_axis_idx(axis)
         components: tuple = (message.key, message.data.shape[axis_idx])
-        # When clusters are derived from a structured channel-axis field, the
-        # cached clusters go stale if that field's values change even though the
-        # key and channel count are unchanged. Fold the field's bytes into the
-        # hash so the state re-derives. Scoped to the cluster_by_field path so
-        # the common (no-field) case pays nothing; the cost is O(channels) once
-        # per message, far below the regression compute.
+        # On the cluster_by_field path, re-derive clusters only when the channel
+        # axis gains or loses the target structured field -- a single O(1)
+        # presence boolean rather than O(channels) of field bytes hashed on every
+        # message (which grows with channel count on this hot path). Concession:
+        # if the axis is already structured and the channel count is unchanged, a
+        # change in the field's *values* (a live bank remap) is not detected. That
+        # is safe for real acquisition streams, whose channel->field map is static
+        # for the stream's life; a genuine remap arrives with a new key or a
+        # different channel count, both already folded in above. Mirrors the
+        # ezmsg-sigproc CommonRereference hash.
         if self.settings.channel_clusters is None and self.settings.cluster_by_field is not None:
             ax = message.axes.get(axis)
-            data = getattr(ax, "data", None)
-            names = getattr(getattr(data, "dtype", None), "names", None)
-            if data is not None and names and self.settings.cluster_by_field in names:
-                components += (data[self.settings.cluster_by_field].tobytes(),)
+            names = getattr(getattr(getattr(ax, "data", None), "dtype", None), "names", None)
+            components += (bool(names and self.settings.cluster_by_field in names),)
         return hash(components)
 
     def _reset_state(self, message: AxisArray) -> None:
