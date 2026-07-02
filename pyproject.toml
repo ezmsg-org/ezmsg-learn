@@ -11,7 +11,7 @@ dynamic = ["version"]
 dependencies = [
     "ezmsg>=3.9.0",
     "ezmsg-baseproc>=1.7.0",
-    "ezmsg-sigproc>=2.23.0",
+    "ezmsg-sigproc>=2.28.0",
     "pandas>=2.2",
     "river>=0.22.0",
     "scikit-learn>=1.6.0",
@@ -76,4 +76,3 @@ known-third-party = ["ezmsg", "ezmsg.baseproc", "ezmsg.sigproc"]
 [tool.uv.sources]
 # Uncomment to use development version of ezmsg from git
 #ezmsg = { git = "https://github.com/ezmsg-org/ezmsg.git", branch = "feature/profiling" }
-ezmsg-sigproc = { git = "https://github.com/ezmsg-org/ezmsg-sigproc.git", branch = "car-bank-aware" }
