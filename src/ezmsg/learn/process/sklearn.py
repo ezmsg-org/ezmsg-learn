@@ -36,6 +36,18 @@ class SklearnModelSettings(ez.Settings):
     The full list of classes to use for partial_fit calls.
     This must be provided to use `partial_fit` with classifiers.
     """
+    predict_method: str = "predict"
+    """
+    Inference method used to produce the output.
+
+    - ``"predict"`` (default): hard predictions, one value per sample. Output is
+      unchanged from earlier versions.
+    - ``"predict_proba"``: per-class posterior probabilities. The output ``ch``
+      axis has one column per class and is relabeled to the model's ``classes_``.
+      Requires a classifier exposing ``predict_proba`` (sklearn) or
+      ``predict_proba_many`` (River). Use this when a downstream consumer needs
+      the full posterior vector rather than a single hard label.
+    """
 
 
 @processor_state
@@ -87,6 +99,10 @@ class SklearnModelProcessor(BaseAdaptiveTransformer[SklearnModelSettings, AxisAr
             raise RuntimeError(f"Failed to load model from {path}: {str(e)}") from e
 
     def _reset_state(self, message: AxisArray) -> None:
+        if self.settings.predict_method not in ("predict", "predict_proba"):
+            raise ValueError(
+                f'Unknown predict_method {self.settings.predict_method!r}; expected "predict" or "predict_proba".'
+            )
         # Try loading from checkpoint first
         if self.settings.checkpoint_path:
             self.load_checkpoint(self.settings.checkpoint_path)
@@ -171,7 +187,18 @@ class SklearnModelProcessor(BaseAdaptiveTransformer[SklearnModelSettings, AxisAr
             if expected != n_input:
                 raise ValueError(f"Model expects {expected} features, but got {n_input}")
 
-        if hasattr(self._state.model, "predict"):
+        if self.settings.predict_method == "predict_proba":
+            if hasattr(self._state.model, "predict_proba"):
+                y_pred = np.asarray(self._state.model.predict_proba(X))
+            elif hasattr(self._state.model, "predict_proba_many"):  # River classifiers
+                df_X = pd.DataFrame(X, columns=[f"f{i}" for i in range(X.shape[1])])
+                y_pred = np.asarray(self._state.model.predict_proba_many(df_X))
+            else:
+                raise NotImplementedError(
+                    f"Model {type(self._state.model).__name__} does not support "
+                    "predict_proba (or River predict_proba_many)."
+                )
+        elif hasattr(self._state.model, "predict"):
             y_pred = self._state.model.predict(X)
         elif hasattr(self._state.model, "predict_many"):
             df_X = pd.DataFrame(X, columns=[f"f{i}" for i in range(X.shape[1])])
@@ -191,7 +218,14 @@ class SklearnModelProcessor(BaseAdaptiveTransformer[SklearnModelSettings, AxisAr
         y_pred = y_pred.reshape(output_shape)
 
         if self._state.chan_ax is None:
-            self._state.chan_ax = AxisArray.CoordinateAxis(data=np.arange(output_shape[1]), dims=["ch"])
+            if self.settings.predict_method == "predict_proba" and (
+                getattr(self._state.model, "classes_", None) is not None
+                and len(self._state.model.classes_) == output_shape[1]
+            ):
+                chan_labels = np.asarray(self._state.model.classes_)
+            else:
+                chan_labels = np.arange(output_shape[1])
+            self._state.chan_ax = AxisArray.CoordinateAxis(data=chan_labels, dims=["ch"])
 
         return replace(
             message,
