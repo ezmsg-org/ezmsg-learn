@@ -225,3 +225,75 @@ def test_hmmlearn_gaussianhmm_predict(input_axisarray):
     assert output.data.shape[0] == input_axisarray.data.shape[0]
     assert output.data.ndim == 2
     assert output.data.shape[1] == 1
+
+
+@pytest.fixture
+def labels_two_class():
+    return np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1])
+
+
+@pytest.mark.parametrize(
+    "model_class",
+    [
+        "sklearn.discriminant_analysis.LinearDiscriminantAnalysis",
+        "sklearn.linear_model.LogisticRegression",
+    ],
+)
+def test_predict_proba_output(model_class, input_axisarray, labels_two_class):
+    proc = SklearnModelProcessor(model_class=model_class, predict_method="predict_proba")
+    proc._reset_state(input_axisarray)
+    proc.fit(input_axisarray.data, labels_two_class)
+
+    output = proc._process(input_axisarray)
+
+    n_classes = len(np.unique(labels_two_class))
+    assert output.data.shape == (input_axisarray.data.shape[0], n_classes)
+    assert np.all(output.data >= 0.0)
+    np.testing.assert_allclose(output.data.sum(axis=1), 1.0, rtol=1e-6, atol=1e-6)
+    # Output ch axis is relabeled to the model's classes_.
+    np.testing.assert_array_equal(output.axes["ch"].data, proc._state.model.classes_)
+
+
+def test_predict_proba_partial_fit_classifier(input_axisarray, labels_two_class):
+    proc = SklearnModelProcessor(
+        model_class="sklearn.linear_model.SGDClassifier",
+        model_kwargs={"loss": "log_loss"},
+        partial_fit_classes=np.array([0, 1]),
+        predict_method="predict_proba",
+    )
+    proc._reset_state(input_axisarray)
+    sample_msg = replace(
+        input_axisarray,
+        attrs={**input_axisarray.attrs, "trigger": SampleTriggerMessage(timestamp=0.0, value=labels_two_class)},
+    )
+    proc.partial_fit(sample_msg)
+
+    output = proc._process(input_axisarray)
+    assert output.data.shape == (input_axisarray.data.shape[0], 2)
+    np.testing.assert_allclose(output.data.sum(axis=1), 1.0, rtol=1e-6, atol=1e-6)
+
+
+def test_predict_method_default_unchanged(input_axisarray, labels_two_class):
+    # Default predict_method must match an explicit predict_method="predict".
+    proc_default = SklearnModelProcessor(model_class="sklearn.linear_model.LogisticRegression")
+    proc_default._reset_state(input_axisarray)
+    proc_default.fit(input_axisarray.data, labels_two_class)
+
+    proc_explicit = SklearnModelProcessor(
+        model_class="sklearn.linear_model.LogisticRegression", predict_method="predict"
+    )
+    proc_explicit._reset_state(input_axisarray)
+    proc_explicit.fit(input_axisarray.data, labels_two_class)
+
+    out_default = proc_default._process(input_axisarray)
+    out_explicit = proc_explicit._process(input_axisarray)
+    np.testing.assert_array_equal(out_default.data, out_explicit.data)
+    assert out_default.data.shape == (input_axisarray.data.shape[0], 1)
+
+
+def test_predict_proba_unsupported_model_raises(input_axisarray, labels_regression):
+    proc = SklearnModelProcessor(model_class="sklearn.linear_model.Ridge", predict_method="predict_proba")
+    proc._reset_state(input_axisarray)
+    proc.fit(input_axisarray.data, labels_regression)
+    with pytest.raises(NotImplementedError, match="predict_proba"):
+        proc._process(input_axisarray)
