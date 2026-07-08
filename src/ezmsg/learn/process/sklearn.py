@@ -1,6 +1,7 @@
 import importlib
 import pickle
 import typing
+from enum import Enum
 
 import ezmsg.core as ez
 import numpy as np
@@ -12,6 +13,11 @@ from ezmsg.baseproc import (
 )
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
+
+
+class PredictMethod(str, Enum):
+    PREDICT = "predict"
+    PREDICT_PROBA = "predict_proba"
 
 
 class SklearnModelSettings(ez.Settings):
@@ -36,7 +42,7 @@ class SklearnModelSettings(ez.Settings):
     The full list of classes to use for partial_fit calls.
     This must be provided to use `partial_fit` with classifiers.
     """
-    predict_method: str = "predict"
+    predict_method: PredictMethod = PredictMethod.PREDICT
     """
     Inference method used to produce the output.
 
@@ -99,10 +105,8 @@ class SklearnModelProcessor(BaseAdaptiveTransformer[SklearnModelSettings, AxisAr
             raise RuntimeError(f"Failed to load model from {path}: {str(e)}") from e
 
     def _reset_state(self, message: AxisArray) -> None:
-        if self.settings.predict_method not in ("predict", "predict_proba"):
-            raise ValueError(
-                f'Unknown predict_method {self.settings.predict_method!r}; expected "predict" or "predict_proba".'
-            )
+        # Validate: raises ValueError on an unknown method; plain strings are accepted.
+        PredictMethod(self.settings.predict_method)
         # Try loading from checkpoint first
         if self.settings.checkpoint_path:
             self.load_checkpoint(self.settings.checkpoint_path)
@@ -187,7 +191,7 @@ class SklearnModelProcessor(BaseAdaptiveTransformer[SklearnModelSettings, AxisAr
             if expected != n_input:
                 raise ValueError(f"Model expects {expected} features, but got {n_input}")
 
-        if self.settings.predict_method == "predict_proba":
+        if self.settings.predict_method == PredictMethod.PREDICT_PROBA:
             if hasattr(self._state.model, "predict_proba"):
                 y_pred = np.asarray(self._state.model.predict_proba(X))
             elif hasattr(self._state.model, "predict_proba_many"):  # River classifiers
@@ -218,7 +222,7 @@ class SklearnModelProcessor(BaseAdaptiveTransformer[SklearnModelSettings, AxisAr
         y_pred = y_pred.reshape(output_shape)
 
         if self._state.chan_ax is None:
-            if self.settings.predict_method == "predict_proba" and (
+            if self.settings.predict_method == PredictMethod.PREDICT_PROBA and (
                 getattr(self._state.model, "classes_", None) is not None
                 and len(self._state.model.classes_) == output_shape[1]
             ):
