@@ -272,3 +272,11 @@ class RNNUnit(
         results = await self.processor.__acall__(message)
         for result in results:
             yield self.OUTPUT_SIGNAL, result
+
+    @ez.subscriber(BaseAdaptiveTransformerUnit.INPUT_SAMPLE)
+    @ez.publisher(BaseAdaptiveTransformerUnit.OUTPUT_SAMPLE)
+    @profile_subpub(trace_oldest=False)
+    async def on_sample(self, msg: AxisArray) -> typing.AsyncGenerator:
+        results = await self.processor.apartial_fit_transform(msg)
+        for result in results:
+            yield self.OUTPUT_SAMPLE, result
