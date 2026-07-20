@@ -61,6 +61,16 @@ from ezmsg.sigproc.util.array import array_device, xp_create
 from ezmsg.sigproc.util.channels import channel_clusters_from_field
 from ezmsg.util.messages.axisarray import AxisArray
 
+# Minimum channels a cluster needs before it is rereferenced. Rereferencing
+# regresses each channel against the *others* in its cluster, so a cluster with
+# fewer than this many channels has too few references to be meaningful (1 -> no
+# reference at all; 2 -> a single, degenerate reference). Such clusters are passed
+# through untouched (identity). This also makes sliced/partial inputs robust: a
+# cluster reduced to a channel or two (or an empty cluster) is a no-op rather than
+# a crash or an unstable fit. Kept a module const for now; promote to a setting if
+# callers need to tune it.
+MIN_REREF_CLUSTER_SIZE = 3
+
 # ---------------------------------------------------------------------------
 # Base: Self-supervised regression
 # ---------------------------------------------------------------------------
@@ -190,7 +200,10 @@ class SelfSupervisedRegressionTransformer(
     def _validate_clusters(self, n_channels: int) -> None:
         """Raise if any cluster index is out of range."""
         clusters = self._get_channel_clusters(n_channels)
-        if clusters is None:
+        if not clusters:
+            # None (single implicit cluster) or empty (0 channels / no clustered
+            # data). Nothing to validate -- and np.concatenate([]) would raise,
+            # which is what broke on a fully sliced-out (0-channel) input.
             return
         all_indices = np.concatenate([np.asarray(g) for g in clusters])
         if np.any((all_indices < 0) | (all_indices >= n_channels)):
@@ -227,7 +240,10 @@ class SelfSupervisedRegressionTransformer(
 
         for cluster in clusters:
             k = len(cluster)
-            if k <= 1:
+            if k < MIN_REREF_CLUSTER_SIZE:
+                # Too few channels to rereference against -- leave these channels
+                # untouched (W rows stay 0 -> identity). Covers sliced/partial
+                # clusters down to a single channel; never raises.
                 continue
 
             idx_xp = xp.asarray(cluster) if dev is None else xp.asarray(cluster, device=dev)
@@ -289,6 +305,10 @@ class SelfSupervisedRegressionTransformer(
             data = xp.permute_dims(data, perm)
 
         n_channels = data.shape[-1]
+        if n_channels == 0:
+            # No channels to fit (e.g. a fully sliced-out hub). Leave the weights
+            # untouched; _process passes the 0-channel data through unchanged.
+            return
         X = xp.reshape(data, (-1, n_channels))
 
         # Covariance stays in the source namespace for accumulation.
@@ -388,8 +408,13 @@ class LRRTransformer(
     # -- transform -----------------------------------------------------------
 
     def _process(self, message: AxisArray) -> AxisArray:
+        axis = self.settings.axis or message.dims[-1]
+        if message.data.shape[message.get_axis_idx(axis)] == 0:
+            # No channels (e.g. a fully sliced-out hub): nothing to rereference.
+            # Pass the 0-channel message through unchanged -- building an affine
+            # from empty channel clusters would raise downstream.
+            return message
         if self._state.affine is None:
-            axis = self.settings.axis or message.dims[-1]
             axis_idx = message.get_axis_idx(axis)
             n_channels = message.data.shape[axis_idx]
 
