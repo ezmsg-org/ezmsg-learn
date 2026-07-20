@@ -501,3 +501,11 @@ class TestLowChannelPassthrough:
         out = self._fit_process(X, banks)
         np.testing.assert_allclose(out[:, big], X[:, big], atol=1e-10)  # lone B ch untouched
         assert np.max(np.abs(out[:, :big] - X[:, :big])) > 1e-3  # bank A rereferenced
+
+    def test_empty_explicit_clusters_with_channels_raises(self):
+        """channel_clusters=[] with real channels is a misconfiguration: fail fast
+        rather than silently disable rereferencing (the empty list is only
+        tolerated when there are no channels)."""
+        proc = LRRTransformer(LRRSettings(axis="ch", channel_clusters=[]))
+        with pytest.raises(ValueError, match="empty but the input has"):
+            proc.partial_fit(_make_axisarray(_random_data(n_ch=8)))

@@ -200,11 +200,20 @@ class SelfSupervisedRegressionTransformer(
     def _validate_clusters(self, n_channels: int) -> None:
         """Raise if any cluster index is out of range."""
         clusters = self._get_channel_clusters(n_channels)
-        if not clusters:
-            # None (single implicit cluster) or empty (0 channels / no clustered
-            # data). Nothing to validate -- and np.concatenate([]) would raise,
-            # which is what broke on a fully sliced-out (0-channel) input.
-            return
+        if clusters is None:
+            return  # implicit single cluster
+        if len(clusters) == 0:
+            # An empty cluster list is only legitimate with no channels (e.g. a
+            # fully sliced-out input). With channels present it means an explicit
+            # channel_clusters=[], which would silently disable rereferencing --
+            # fail fast instead. (An empty list also breaks np.concatenate below.)
+            if n_channels == 0:
+                return
+            raise ValueError(
+                f"channel_clusters is empty but the input has {n_channels} channels. "
+                "Pass channel_clusters=None to treat all channels as a single "
+                "cluster, or provide non-empty channel index groups."
+            )
         all_indices = np.concatenate([np.asarray(g) for g in clusters])
         if np.any((all_indices < 0) | (all_indices >= n_channels)):
             raise ValueError(f"channel_clusters contains out-of-range indices (valid range: 0..{n_channels - 1})")
