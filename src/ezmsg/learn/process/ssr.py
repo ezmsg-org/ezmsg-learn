@@ -61,6 +61,16 @@ from ezmsg.sigproc.util.array import array_device, xp_create
 from ezmsg.sigproc.util.channels import channel_clusters_from_field
 from ezmsg.util.messages.axisarray import AxisArray
 
+# Minimum channels a cluster needs before it is rereferenced. Rereferencing
+# regresses each channel against the *others* in its cluster, so a cluster with
+# fewer than this many channels has too few references to be meaningful (1 -> no
+# reference at all; 2 -> a single, degenerate reference). Such clusters are passed
+# through untouched (identity). This also makes sliced/partial inputs robust: a
+# cluster reduced to a channel or two (or an empty cluster) is a no-op rather than
+# a crash or an unstable fit. Kept a module const for now; promote to a setting if
+# callers need to tune it.
+MIN_REREF_CLUSTER_SIZE = 3
+
 # ---------------------------------------------------------------------------
 # Base: Self-supervised regression
 # ---------------------------------------------------------------------------
@@ -191,7 +201,19 @@ class SelfSupervisedRegressionTransformer(
         """Raise if any cluster index is out of range."""
         clusters = self._get_channel_clusters(n_channels)
         if clusters is None:
-            return
+            return  # implicit single cluster
+        if len(clusters) == 0:
+            # An empty cluster list is only legitimate with no channels (e.g. a
+            # fully sliced-out input). With channels present it means an explicit
+            # channel_clusters=[], which would silently disable rereferencing --
+            # fail fast instead. (An empty list also breaks np.concatenate below.)
+            if n_channels == 0:
+                return
+            raise ValueError(
+                f"channel_clusters is empty but the input has {n_channels} channels. "
+                "Pass channel_clusters=None to treat all channels as a single "
+                "cluster, or provide non-empty channel index groups."
+            )
         all_indices = np.concatenate([np.asarray(g) for g in clusters])
         if np.any((all_indices < 0) | (all_indices >= n_channels)):
             raise ValueError(f"channel_clusters contains out-of-range indices (valid range: 0..{n_channels - 1})")
@@ -227,7 +249,10 @@ class SelfSupervisedRegressionTransformer(
 
         for cluster in clusters:
             k = len(cluster)
-            if k <= 1:
+            if k < MIN_REREF_CLUSTER_SIZE:
+                # Too few channels to rereference against -- leave these channels
+                # untouched (W rows stay 0 -> identity). Covers sliced/partial
+                # clusters down to a single channel; never raises.
                 continue
 
             idx_xp = xp.asarray(cluster) if dev is None else xp.asarray(cluster, device=dev)
@@ -289,6 +314,10 @@ class SelfSupervisedRegressionTransformer(
             data = xp.permute_dims(data, perm)
 
         n_channels = data.shape[-1]
+        if n_channels == 0:
+            # No channels to fit (e.g. a fully sliced-out hub). Leave the weights
+            # untouched; _process passes the 0-channel data through unchanged.
+            return
         X = xp.reshape(data, (-1, n_channels))
 
         # Covariance stays in the source namespace for accumulation.
@@ -309,6 +338,9 @@ class SelfSupervisedRegressionTransformer(
         """Batch fit from a raw numpy array (samples x channels)."""
         n_channels = X.shape[-1]
         self._validate_clusters(n_channels)
+        if n_channels == 0:
+            # No channels to fit -- same 0-channel no-op as partial_fit.
+            return
         X = np.asarray(X, dtype=np.float64).reshape(-1, n_channels)
         self._state.cxx = X.T @ X
         self._state.n_samples = X.shape[0]
@@ -388,8 +420,13 @@ class LRRTransformer(
     # -- transform -----------------------------------------------------------
 
     def _process(self, message: AxisArray) -> AxisArray:
+        axis = self.settings.axis or message.dims[-1]
+        if message.data.shape[message.get_axis_idx(axis)] == 0:
+            # No channels (e.g. a fully sliced-out hub): nothing to rereference.
+            # Pass the 0-channel message through unchanged -- building an affine
+            # from empty channel clusters would raise downstream.
+            return message
         if self._state.affine is None:
-            axis = self.settings.axis or message.dims[-1]
             axis_idx = message.get_axis_idx(axis)
             n_channels = message.data.shape[axis_idx]
 

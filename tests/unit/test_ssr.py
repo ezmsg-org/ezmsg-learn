@@ -6,7 +6,11 @@ import numpy as np
 import pytest
 from ezmsg.util.messages.axisarray import AxisArray
 
-from ezmsg.learn.process.ssr import LRRSettings, LRRTransformer
+from ezmsg.learn.process.ssr import (
+    MIN_REREF_CLUSTER_SIZE,
+    LRRSettings,
+    LRRTransformer,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -435,3 +439,80 @@ class TestPrecalculatedWeightsFromFile:
 
         expected = X @ (np.eye(n_ch) - W)
         np.testing.assert_allclose(out.data, expected, atol=1e-10)
+
+
+def _common_mode_data(n_times: int = 400, n_ch: int = 8, rng=None) -> np.ndarray:
+    """Noise plus a shared common-mode component, so rereferencing (which
+    regresses out shared signal) produces a clearly non-identity output."""
+    if rng is None:
+        rng = np.random.default_rng(7)
+    common = rng.standard_normal((n_times, 1))
+    return rng.standard_normal((n_times, n_ch)) + common
+
+
+class TestLowChannelPassthrough:
+    """Clusters smaller than MIN_REREF_CLUSTER_SIZE (and empty inputs) pass
+    through untouched instead of crashing -- so sliced/partial channel sets are
+    safe (e.g. a hub left with no channels after an upstream region slice)."""
+
+    def _fit_process(self, data: np.ndarray, banks: list[str]) -> np.ndarray:
+        proc = LRRTransformer(LRRSettings(axis="ch", cluster_by_field="bank"))
+        for _ in range(8):
+            proc.partial_fit(_banked_axisarray(data, banks))
+        return np.asarray(proc(_banked_axisarray(data, banks)).data)
+
+    def test_zero_channels_passthrough(self):
+        """0 channels (fully sliced-out hub) must not crash on fit or process."""
+        proc = LRRTransformer(LRRSettings(axis="ch", cluster_by_field="bank"))
+        empty = _banked_axisarray(np.zeros((10, 0)), [])
+        proc.partial_fit(empty)  # no channels to fit -- must be a no-op
+        out = proc(empty)  # must pass through, not build an affine from []
+        assert out.data.shape == (10, 0)
+
+    def test_zero_channels_batch_fit(self):
+        """Batch fit() with 0 channels is the same no-op as partial_fit."""
+        proc = LRRTransformer(LRRSettings(axis="ch"))
+        proc.fit(np.zeros((10, 0)))
+        out = proc(_banked_axisarray(np.zeros((10, 0)), []))
+        assert out.data.shape == (10, 0)
+
+    def test_single_channel_identity(self):
+        rng = np.random.default_rng(1)
+        X = _common_mode_data(n_ch=1, rng=rng)
+        out = self._fit_process(X, ["A"])
+        np.testing.assert_allclose(out, X, atol=1e-10)
+
+    def test_below_threshold_identity(self):
+        """A cluster with < MIN_REREF_CLUSTER_SIZE channels is left untouched."""
+        n = MIN_REREF_CLUSTER_SIZE - 1
+        rng = np.random.default_rng(2)
+        X = _common_mode_data(n_ch=n, rng=rng)
+        out = self._fit_process(X, ["A"] * n)
+        np.testing.assert_allclose(out, X, atol=1e-10)
+
+    def test_at_threshold_rereferences(self):
+        """A cluster with exactly MIN_REREF_CLUSTER_SIZE channels is rereferenced."""
+        n = MIN_REREF_CLUSTER_SIZE
+        rng = np.random.default_rng(3)
+        X = _common_mode_data(n_ch=n, rng=rng)
+        out = self._fit_process(X, ["A"] * n)
+        assert np.max(np.abs(out - X)) > 1e-3
+
+    def test_mixed_small_and_large_clusters(self):
+        """Per-cluster: a full bank rereferences while a lone-channel bank in the
+        same message passes through untouched."""
+        big = MIN_REREF_CLUSTER_SIZE + 1
+        rng = np.random.default_rng(4)
+        X = _common_mode_data(n_ch=big + 1, rng=rng)
+        banks = ["A"] * big + ["B"]  # bank A: big ch, bank B: 1 ch
+        out = self._fit_process(X, banks)
+        np.testing.assert_allclose(out[:, big], X[:, big], atol=1e-10)  # lone B ch untouched
+        assert np.max(np.abs(out[:, :big] - X[:, :big])) > 1e-3  # bank A rereferenced
+
+    def test_empty_explicit_clusters_with_channels_raises(self):
+        """channel_clusters=[] with real channels is a misconfiguration: fail fast
+        rather than silently disable rereferencing (the empty list is only
+        tolerated when there are no channels)."""
+        proc = LRRTransformer(LRRSettings(axis="ch", channel_clusters=[]))
+        with pytest.raises(ValueError, match="empty but the input has"):
+            proc.partial_fit(_make_axisarray(_random_data(n_ch=8)))
