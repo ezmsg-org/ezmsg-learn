@@ -469,6 +469,13 @@ class TestLowChannelPassthrough:
         out = proc(empty)  # must pass through, not build an affine from []
         assert out.data.shape == (10, 0)
 
+    def test_zero_channels_batch_fit(self):
+        """Batch fit() with 0 channels is the same no-op as partial_fit."""
+        proc = LRRTransformer(LRRSettings(axis="ch"))
+        proc.fit(np.zeros((10, 0)))
+        out = proc(_banked_axisarray(np.zeros((10, 0)), []))
+        assert out.data.shape == (10, 0)
+
     def test_single_channel_identity(self):
         rng = np.random.default_rng(1)
         X = _common_mode_data(n_ch=1, rng=rng)

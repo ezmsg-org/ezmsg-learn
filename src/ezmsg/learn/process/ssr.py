@@ -338,6 +338,9 @@ class SelfSupervisedRegressionTransformer(
         """Batch fit from a raw numpy array (samples x channels)."""
         n_channels = X.shape[-1]
         self._validate_clusters(n_channels)
+        if n_channels == 0:
+            # No channels to fit -- same 0-channel no-op as partial_fit.
+            return
         X = np.asarray(X, dtype=np.float64).reshape(-1, n_channels)
         self._state.cxx = X.T @ X
         self._state.n_samples = X.shape[0]
