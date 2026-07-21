@@ -35,6 +35,12 @@ class RNNSettings(TorchModelSettings):
     If False, the hidden state will be reset at the start of each window.
     If "auto", preserve if there is no overlap in time windows, otherwise reset.
     """
+    batch_train: bool = False
+    """
+    When True, train on the full batch in a single forward/backward pass
+    using packed sequences to handle varying sequence lengths.
+    When False, train each sample individually (current behavior).
+    """
 
 
 class RNNState(TorchModelState):
@@ -154,8 +160,10 @@ class RNNProcessor(
         X: torch.Tensor,
         y_targ: dict[str, torch.Tensor],
         loss_fns: dict[str, torch.nn.Module],
+        input_lens: torch.Tensor | None = None,
+        target_lens: torch.Tensor | None = None,
     ) -> None:
-        y_pred, self._state.hx = self._state.model(X, hx=self._state.hx)
+        y_pred, self._state.hx = self._state.model(X, hx=self._state.hx, input_lens=input_lens)
         if not isinstance(y_pred, dict):
             y_pred = {"output": y_pred}
 
@@ -167,6 +175,12 @@ class RNNProcessor(
                 raise ValueError(f"Loss function for key '{key}' is not defined.")
             if isinstance(loss_fn, torch.nn.CrossEntropyLoss):
                 loss = loss_fn(y_pred[key].permute(0, 2, 1), y_targ[key].long())
+            elif isinstance(loss_fn, torch.nn.CTCLoss):
+                if input_lens is None or target_lens is None:
+                    raise ValueError("CTCLoss requires input_lens and target_lens in batch training mode.")
+                log_probs = torch.nn.functional.log_softmax(y_pred[key], dim=-1).permute(1, 0, 2)
+                targets = y_targ[key].flatten().long()
+                loss = loss_fn(log_probs, targets, input_lengths=input_lens, target_lengths=target_lens)
             else:
                 loss = loss_fn(y_pred[key], y_targ[key])
             weight = loss_weights.get(key, 1.0)
@@ -210,7 +224,23 @@ class RNNProcessor(
             loss_fns = {k: loss_fns for k in y_targ.keys()}
 
         with torch.set_grad_enabled(True):
-            if preserve_state:
+            if self.settings.batch_train:
+                input_lens = message.attrs.get("data_len")
+                target_lens = message.attrs.get("trigger_len")
+                if input_lens is not None:
+                    input_lens = torch.tensor(input_lens, dtype=torch.int64, device="cpu")
+                    if target_lens is not None:
+                        target_lens = torch.tensor(target_lens, dtype=torch.long, device=self._state.device)
+                    self.reset_hidden(batch_size)
+                    self._train_step(X, y_targ, loss_fns, input_lens=input_lens, target_lens=target_lens)
+                else:
+                    ez.logger.warning(
+                        "batch_train=True but 'data_len' not in message.attrs; falling back to per-sample training."
+                    )
+                    self.reset_hidden(batch_size)
+                    for i in range(batch_size):
+                        self._train_step(X[i].unsqueeze(0), {k: v[i].unsqueeze(0) for k, v in y_targ.items()}, loss_fns)
+            elif preserve_state:
                 self._train_step(X, y_targ, loss_fns)
             else:
                 for i in range(batch_size):
