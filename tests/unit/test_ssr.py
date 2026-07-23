@@ -10,6 +10,7 @@ from ezmsg.learn.process.ssr import (
     MIN_REREF_CLUSTER_SIZE,
     LRRSettings,
     LRRTransformer,
+    RereferenceInit,
 )
 
 # ---------------------------------------------------------------------------
@@ -516,3 +517,97 @@ class TestLowChannelPassthrough:
         proc = LRRTransformer(LRRSettings(axis="ch", channel_clusters=[]))
         with pytest.raises(ValueError, match="empty but the input has"):
             proc.partial_fit(_make_axisarray(_random_data(n_ch=8)))
+
+
+class TestCARInit:
+    """init_default=CAR: cold-start per-cluster leave-one-out CAR when there are
+    no weights and nothing has been fit."""
+
+    @staticmethod
+    def _loo_car(X: np.ndarray, clusters) -> np.ndarray:
+        """Reference per-cluster leave-one-out CAR: y_i = x_i - mean_{j!=i} x_j."""
+        out = X.copy()
+        for cl in clusters:
+            if len(cl) < MIN_REREF_CLUSTER_SIZE:
+                continue
+            block = X[:, cl]
+            loo = (block.sum(axis=1, keepdims=True) - block) / (len(cl) - 1)
+            out[:, cl] = block - loo
+        return out
+
+    def test_car_applies_leave_one_out_per_cluster(self):
+        clusters = [[0, 1, 2, 3], [4, 5, 6, 7]]
+        X = _random_data(n_ch=8)
+        proc = LRRTransformer(
+            LRRSettings(channel_clusters=clusters, init_default=RereferenceInit.CAR)
+        )
+        out = proc.send(_make_axisarray(X))  # no fit / no weights
+        np.testing.assert_allclose(out.data, self._loo_car(X, clusters), atol=1e-10)
+
+    def test_car_leaves_small_clusters_identity(self):
+        # first cluster (size 2 < MIN_REREF_CLUSTER_SIZE) must pass through
+        clusters = [[0, 1], [2, 3, 4, 5, 6, 7]]
+        X = _random_data(n_ch=8)
+        proc = LRRTransformer(
+            LRRSettings(channel_clusters=clusters, init_default=RereferenceInit.CAR)
+        )
+        out = proc.send(_make_axisarray(X))
+        np.testing.assert_allclose(out.data[:, :2], X[:, :2], atol=1e-12)
+        np.testing.assert_allclose(out.data, self._loo_car(X, clusters), atol=1e-10)
+
+    def test_car_from_bank_field(self):
+        """cluster_by_field='bank' + CAR reproduces per-bank leave-one-out CAR."""
+        n_ch = 8
+        ch = np.zeros(n_ch, dtype=[("bank", "U1")])
+        ch["bank"][:4], ch["bank"][4:] = "A", "B"
+        X = _random_data(n_ch=n_ch)
+        msg = AxisArray(
+            data=X,
+            dims=["time", "ch"],
+            axes={
+                "time": AxisArray.TimeAxis(fs=100.0, offset=0.0),
+                "ch": AxisArray.CoordinateAxis(data=ch, dims=["ch"]),
+            },
+            key="test",
+        )
+        proc = LRRTransformer(
+            LRRSettings(axis="ch", cluster_by_field="bank", init_default=RereferenceInit.CAR)
+        )
+        out = proc.send(msg)
+        np.testing.assert_allclose(
+            out.data, self._loo_car(X, [[0, 1, 2, 3], [4, 5, 6, 7]]), atol=1e-10
+        )
+
+    def test_default_init_is_identity_passthrough(self):
+        """Default (IDENTITY) with no weights is unchanged legacy passthrough."""
+        X = _random_data(n_ch=8)
+        proc = LRRTransformer(LRRSettings(channel_clusters=[[0, 1, 2, 3], [4, 5, 6, 7]]))
+        out = proc.send(_make_axisarray(X))
+        np.testing.assert_allclose(out.data, X, atol=1e-12)
+
+    def test_provided_weights_override_car(self):
+        """Explicit weights win over the CAR cold-start default."""
+        X = _random_data(n_ch=8)
+        # W = 0 => effective I - W = identity, so output is passthrough (not CAR).
+        proc = LRRTransformer(
+            LRRSettings(weights=np.zeros((8, 8)), init_default=RereferenceInit.CAR)
+        )
+        out = proc.send(_make_axisarray(X))
+        np.testing.assert_allclose(out.data, X, atol=1e-12)
+
+    def test_fit_overrides_car(self):
+        """A fitted LRR takes precedence over the CAR cold-start default: once
+        weights are learned, output is the fitted rereference, not CAR."""
+        clusters = [[0, 1, 2, 3], [4, 5, 6, 7]]
+        X = _random_data(n_ch=8, n_times=400)
+        msg = _make_axisarray(X)
+        proc = LRRTransformer(
+            LRRSettings(channel_clusters=clusters, init_default=RereferenceInit.CAR)
+        )
+        proc.partial_fit(msg)
+        out = proc.send(msg)
+
+        fitted = X @ (np.eye(8) - proc.state.weights)
+        np.testing.assert_allclose(out.data, fitted, atol=1e-8)
+        # And it is NOT the CAR cold-start.
+        assert not np.allclose(out.data, self._loo_car(X, clusters), atol=1e-8)

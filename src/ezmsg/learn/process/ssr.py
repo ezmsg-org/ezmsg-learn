@@ -39,6 +39,7 @@ namespace so that GPU-backed arrays benefit from device-side computation.
 
 from __future__ import annotations
 
+import enum
 import os
 import typing
 from abc import abstractmethod
@@ -70,6 +71,23 @@ from ezmsg.util.messages.axisarray import AxisArray
 # a crash or an unstable fit. Kept a module const for now; promote to a setting if
 # callers need to tune it.
 MIN_REREF_CLUSTER_SIZE = 3
+
+
+class RereferenceInit(str, enum.Enum):
+    """Effective transform to apply before any weights are set.
+
+    Governs the cold-start behavior of an affine rereference (``weights=None`` and
+    no fit yet). ``str`` enum so it round-trips through config as its plain value.
+    """
+
+    IDENTITY = "identity"
+    """Pass the signal through unchanged (legacy default)."""
+
+    CAR = "car"
+    """Per-cluster leave-one-out common-average reference, derived from the
+    resolved channel clusters. A useful cold start (e.g. before any fitted LRR
+    weights exist); replaced as soon as weights are provided or fit."""
+
 
 # ---------------------------------------------------------------------------
 # Base: Self-supervised regression
@@ -374,6 +392,12 @@ class LRRSettings(SelfSupervisedRegressionSettings):
     """Passed to :class:`AffineTransformTransformer` for the block-diagonal
     merge threshold."""
 
+    init_default: RereferenceInit = RereferenceInit.IDENTITY
+    """Effective transform used when ``weights`` is None and nothing has been fit
+    yet. ``IDENTITY`` passes through (legacy); ``CAR`` applies per-cluster
+    leave-one-out common-average referencing from the resolved clusters. Provided
+    or fitted weights always take precedence over this cold-start default."""
+
 
 @processor_state
 class LRRState(SelfSupervisedRegressionState):
@@ -417,6 +441,39 @@ class LRRTransformer(
                 )
             )
 
+    # -- cold-start default (no weights yet) --------------------------------
+
+    def _car_effective_matrix(self, n_channels: int, xp, dtype, dev):
+        """Per-cluster leave-one-out CAR as an effective ``I - W`` matrix.
+
+        Within a cluster of ``k >= MIN_REREF_CLUSTER_SIZE`` channels the sub-block
+        is ``y_i = x_i - mean_{j != i} x_j`` (diagonal 1, off-diagonal
+        ``-1/(k-1)``); clusters smaller than that -- and all cross-cluster terms --
+        stay identity, matching the fit's passthrough for tiny/sliced clusters.
+        Built in the message's array namespace via a selection-matrix scatter, so
+        GPU-backed arrays stay on device (mirrors :meth:`_solve_weights`).
+        """
+        eye_n = xp_create(xp.eye, n_channels, dtype=dtype, device=dev)
+        effective = eye_n
+        clusters = self._get_channel_clusters(n_channels)
+        if clusters is None:
+            clusters = [list(range(n_channels))]
+        for cluster in clusters:
+            k = len(cluster)
+            if k < MIN_REREF_CLUSTER_SIZE:
+                continue  # too few references: leave this block identity
+            idx = xp.asarray(cluster) if dev is None else xp.asarray(cluster, device=dev)
+            eye_k = xp_create(xp.eye, k, dtype=dtype, device=dev)
+            ones_k = xp_create(xp.ones, (k, k), dtype=dtype, device=dev)
+            # leave-one-out CAR sub-block: (k/(k-1)) I_k - (1/(k-1)) J_k
+            block = (k / (k - 1.0)) * eye_k - (1.0 / (k - 1.0)) * ones_k
+            # scatter (block - I_k) onto the identity so the sub-block becomes block
+            S = xp.take(eye_n, idx, axis=1)  # (n, k)
+            effective = effective + xp.matmul(
+                S, xp.matmul(block - eye_k, xp.permute_dims(S, (1, 0)))
+            )
+        return effective
+
     # -- transform -----------------------------------------------------------
 
     def _process(self, message: AxisArray) -> AxisArray:
@@ -432,7 +489,15 @@ class LRRTransformer(
 
             xp = get_namespace(message.data)
             dev = array_device(message.data)
-            effective = xp_create(xp.eye, n_channels, dtype=message.data.dtype, device=dev)
+            # No weights provided or fit yet: use the configured cold-start default.
+            if self.settings.init_default == RereferenceInit.CAR:
+                effective = self._car_effective_matrix(
+                    n_channels, xp, message.data.dtype, dev
+                )
+            else:
+                effective = xp_create(
+                    xp.eye, n_channels, dtype=message.data.dtype, device=dev
+                )
             self._state.affine = AffineTransformTransformer(
                 AffineTransformSettings(
                     weights=effective,
