@@ -247,6 +247,10 @@ class SelfSupervisedRegressionTransformer(
         W = xp_create(xp.zeros, (n, n), dtype=cxx.dtype, device=dev)
         eye_n = xp_create(xp.eye, n, dtype=cxx.dtype, device=dev)
 
+        # MLX linalg ops are CPU-only; with unified memory the explicit CPU
+        # stream is a scheduling hint, not a host copy, and results stay mlx.
+        inv_kwargs = {"stream": xp.cpu} if xp.__name__ == "mlx.core" else {}
+
         for cluster in clusters:
             k = len(cluster)
             if k < MIN_REREF_CLUSTER_SIZE:
@@ -266,9 +270,9 @@ class SelfSupervisedRegressionTransformer(
 
             # One inverse per cluster
             try:
-                sub_inv = xp.linalg.inv(sub)
+                sub_inv = xp.linalg.inv(sub, **inv_kwargs)
             except Exception:
-                sub_inv = xp.linalg.pinv(sub)
+                sub_inv = xp.linalg.pinv(sub, **inv_kwargs)
 
             # Diagonal via element-wise product with identity
             diag_vals = xp.sum(sub_inv * eye_k, axis=0)

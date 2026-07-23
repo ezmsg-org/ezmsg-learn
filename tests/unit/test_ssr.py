@@ -599,3 +599,90 @@ class TestCARInit:
         np.testing.assert_allclose(out.data, fitted, atol=1e-8)
         # And it is NOT the CAR cold-start.
         assert not np.allclose(out.data, self._loo_car(X, clusters), atol=1e-8)
+
+
+# ---------------------------------------------------------------------------
+# Backend (array namespace) preservation
+# ---------------------------------------------------------------------------
+
+
+def _backend(name: str):
+    """Return (converter, array_type) for a non-numpy Array API backend,
+    skipping if the library is not installed (e.g. mlx off-macOS)."""
+    if name == "mlx":
+        mx = pytest.importorskip("mlx.core")
+        return mx.array, mx.array
+    torch = pytest.importorskip("torch")
+    return torch.from_numpy, torch.Tensor
+
+
+@pytest.mark.parametrize("backend", ["mlx", "torch"])
+class TestBackendPreservation:
+    """The input's array namespace (mlx / torch) must be preserved to the
+    output, and derived state -- cxx, weights, and the internal affine's
+    weight arrays -- must live in that namespace. Cold-start matrices are
+    deliberately built as numpy and must be converted to the message's
+    backend on first use by the affine transformer."""
+
+    CLUSTERS = [[0, 1, 2, 3], [4, 5, 6, 7]]
+
+    @staticmethod
+    def _affine_weight_arrays(affine):
+        """All weight arrays held by the internal affine (dense or per-cluster)."""
+        if affine.state.weights is not None:
+            return [affine.state.weights]
+        return [sub_w for _, _, sub_w in affine.state.clusters]
+
+    def test_cold_start_car_converts_and_preserves(self, backend):
+        conv, typ = _backend(backend)
+        X = _random_data().astype(np.float32)
+        proc = LRRTransformer(LRRSettings(channel_clusters=self.CLUSTERS, init_default=RereferenceKind.CAR))
+        out = proc.send(_make_axisarray(conv(X.copy())))
+
+        assert isinstance(out.data, typ)
+        weight_arrays = self._affine_weight_arrays(proc.state.affine)
+        assert len(weight_arrays) > 0
+        for w in weight_arrays:
+            assert isinstance(w, typ)
+
+        # Values match the numpy cold-start CAR.
+        ref_proc = LRRTransformer(LRRSettings(channel_clusters=self.CLUSTERS, init_default=RereferenceKind.CAR))
+        ref = ref_proc.send(_make_axisarray(X))
+        np.testing.assert_allclose(np.asarray(out.data), ref.data, atol=1e-5)
+
+    def test_fit_keeps_state_and_output_in_backend(self, backend):
+        conv, typ = _backend(backend)
+        X = _random_data(n_times=400).astype(np.float32)
+        msg = _make_axisarray(conv(X.copy()))
+        proc = LRRTransformer(LRRSettings(channel_clusters=self.CLUSTERS))
+        proc.partial_fit(msg)
+
+        assert isinstance(proc.state.cxx, typ)
+        assert isinstance(proc.state.weights, typ)
+
+        out = proc.send(msg)
+        assert isinstance(out.data, typ)
+        for w in self._affine_weight_arrays(proc.state.affine):
+            assert isinstance(w, typ)
+
+        # Fitted output matches the numpy fit within float32 tolerance.
+        ref_proc = LRRTransformer(LRRSettings(channel_clusters=self.CLUSTERS))
+        ref_proc.partial_fit(_make_axisarray(X))
+        ref = ref_proc.send(_make_axisarray(X))
+        np.testing.assert_allclose(np.asarray(out.data), ref.data, atol=1e-3)
+
+    def test_numpy_settings_weights_with_backend_messages(self, backend):
+        conv, typ = _backend(backend)
+        X = _random_data(n_times=400).astype(np.float32)
+
+        fit_proc = LRRTransformer(LRRSettings(channel_clusters=self.CLUSTERS))
+        fit_proc.partial_fit(_make_axisarray(X))
+        W = np.asarray(fit_proc.state.weights)
+        ref = fit_proc.send(_make_axisarray(X))
+
+        proc = LRRTransformer(LRRSettings(weights=W, channel_clusters=self.CLUSTERS))
+        out = proc.send(_make_axisarray(conv(X.copy())))
+        assert isinstance(out.data, typ)
+        for w in self._affine_weight_arrays(proc.state.affine):
+            assert isinstance(w, typ)
+        np.testing.assert_allclose(np.asarray(out.data), ref.data, atol=1e-3)
