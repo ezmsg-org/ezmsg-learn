@@ -58,7 +58,8 @@ from ezmsg.sigproc.affinetransform import (
     AffineTransformTransformer,
 )
 from ezmsg.sigproc.util.array import array_device, xp_create
-from ezmsg.sigproc.util.channels import channel_clusters_from_field
+from ezmsg.sigproc.util.channels import channel_clusters_from_field, validate_channel_clusters
+from ezmsg.sigproc.util.rereference import RereferenceKind, rereference_matrix
 from ezmsg.util.messages.axisarray import AxisArray
 
 # Minimum channels a cluster needs before it is rereferenced. Rereferencing
@@ -70,6 +71,7 @@ from ezmsg.util.messages.axisarray import AxisArray
 # a crash or an unstable fit. Kept a module const for now; promote to a setting if
 # callers need to tune it.
 MIN_REREF_CLUSTER_SIZE = 3
+
 
 # ---------------------------------------------------------------------------
 # Base: Self-supervised regression
@@ -206,7 +208,7 @@ class SelfSupervisedRegressionTransformer(
             # An empty cluster list is only legitimate with no channels (e.g. a
             # fully sliced-out input). With channels present it means an explicit
             # channel_clusters=[], which would silently disable rereferencing --
-            # fail fast instead. (An empty list also breaks np.concatenate below.)
+            # fail fast instead.
             if n_channels == 0:
                 return
             raise ValueError(
@@ -214,9 +216,7 @@ class SelfSupervisedRegressionTransformer(
                 "Pass channel_clusters=None to treat all channels as a single "
                 "cluster, or provide non-empty channel index groups."
             )
-        all_indices = np.concatenate([np.asarray(g) for g in clusters])
-        if np.any((all_indices < 0) | (all_indices >= n_channels)):
-            raise ValueError(f"channel_clusters contains out-of-range indices (valid range: 0..{n_channels - 1})")
+        validate_channel_clusters(clusters, n_channels)
 
     # -- weight solving ------------------------------------------------------
 
@@ -247,6 +247,10 @@ class SelfSupervisedRegressionTransformer(
         W = xp_create(xp.zeros, (n, n), dtype=cxx.dtype, device=dev)
         eye_n = xp_create(xp.eye, n, dtype=cxx.dtype, device=dev)
 
+        # MLX linalg ops are CPU-only; with unified memory the explicit CPU
+        # stream is a scheduling hint, not a host copy, and results stay mlx.
+        inv_kwargs = {"stream": xp.cpu} if xp.__name__ == "mlx.core" else {}
+
         for cluster in clusters:
             k = len(cluster)
             if k < MIN_REREF_CLUSTER_SIZE:
@@ -266,9 +270,9 @@ class SelfSupervisedRegressionTransformer(
 
             # One inverse per cluster
             try:
-                sub_inv = xp.linalg.inv(sub)
+                sub_inv = xp.linalg.inv(sub, **inv_kwargs)
             except Exception:
-                sub_inv = xp.linalg.pinv(sub)
+                sub_inv = xp.linalg.pinv(sub, **inv_kwargs)
 
             # Diagonal via element-wise product with identity
             diag_vals = xp.sum(sub_inv * eye_k, axis=0)
@@ -374,6 +378,14 @@ class LRRSettings(SelfSupervisedRegressionSettings):
     """Passed to :class:`AffineTransformTransformer` for the block-diagonal
     merge threshold."""
 
+    init_default: RereferenceKind = RereferenceKind.IDENTITY
+    """Effective transform used when ``weights`` is None and nothing has been fit
+    yet. ``IDENTITY`` passes through (legacy); ``CAR`` applies per-cluster
+    leave-one-out common-average referencing from the resolved clusters (clusters
+    below :data:`MIN_REREF_CLUSTER_SIZE` stay identity, matching the fit's
+    passthrough). Provided or fitted weights always take precedence over this
+    cold-start default."""
+
 
 @processor_state
 class LRRState(SelfSupervisedRegressionState):
@@ -430,9 +442,18 @@ class LRRTransformer(
             axis_idx = message.get_axis_idx(axis)
             n_channels = message.data.shape[axis_idx]
 
-            xp = get_namespace(message.data)
-            dev = array_device(message.data)
-            effective = xp_create(xp.eye, n_channels, dtype=message.data.dtype, device=dev)
+            # No weights provided or fit yet: build the configured cold-start
+            # default (identity, or per-cluster leave-one-out CAR matching the
+            # fit's passthrough for clusters below MIN_REREF_CLUSTER_SIZE).
+            # Built as numpy; the affine transformer converts weights to the
+            # message's namespace/dtype/device on first use.
+            effective = rereference_matrix(
+                self.settings.init_default,
+                n_channels,
+                clusters=self._get_channel_clusters(n_channels),
+                include_current=False,
+                min_reref_size=MIN_REREF_CLUSTER_SIZE,
+            )
             self._state.affine = AffineTransformTransformer(
                 AffineTransformSettings(
                     weights=effective,
