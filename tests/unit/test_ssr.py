@@ -38,6 +38,15 @@ def _random_data(n_times: int = 200, n_ch: int = 8, rng=None) -> np.ndarray:
     return rng.standard_normal((n_times, n_ch))
 
 
+def _common_mode_data(n_times: int = 400, n_ch: int = 8, rng=None) -> np.ndarray:
+    """Noise plus a shared common-mode component, so rereferencing (which
+    regresses out shared signal) produces a clearly non-identity output."""
+    if rng is None:
+        rng = np.random.default_rng(7)
+    common = rng.standard_normal((n_times, 1))
+    return rng.standard_normal((n_times, n_ch)) + common
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -442,13 +451,49 @@ class TestPrecalculatedWeightsFromFile:
         np.testing.assert_allclose(out.data, expected, atol=1e-10)
 
 
-def _common_mode_data(n_times: int = 400, n_ch: int = 8, rng=None) -> np.ndarray:
-    """Noise plus a shared common-mode component, so rereferencing (which
-    regresses out shared signal) produces a clearly non-identity output."""
-    if rng is None:
-        rng = np.random.default_rng(7)
-    common = rng.standard_normal((n_times, 1))
-    return rng.standard_normal((n_times, n_ch)) + common
+class TestApplyFollowsWeightBlocks:
+    """Regression: applying fit/loaded weights must equal ``X @ (I - W)`` no matter
+    what ``block_size`` / ``cluster_by_field`` the transformer carries.
+
+    The block-diagonal apply optimization must follow the WEIGHT MATRIX's real
+    block structure, not a cluster hint that may not match it. Previously the
+    affine was built with ``_get_channel_clusters()``, which falls back to
+    ``block_size`` when the ``cluster_by_field`` metadata is absent at apply time
+    (e.g. a processor constructed with weights before any message resolves the
+    field). When those fallback clusters were FINER than the W's true blocks --
+    as when a W is fit over non-contiguous electrode-array groups but applied with
+    a smaller ``block_size`` -- two input sub-groups of one true block mapped to
+    the same output indices, and the block-diagonal matmul's assignment silently
+    OVERWROTE the earlier sub-group. Each true block was then rereferenced against
+    only a subset of its channels, corrupting the output while looking valid.
+    """
+
+    def test_apply_ignores_block_size_finer_than_weight_blocks(self):
+        rng = np.random.default_rng(123)
+        n_ch = 128
+        # W block-diagonal over two NON-CONTIGUOUS 64-ch groups (like two electrode
+        # arrays interleaved in channel order: an "array" = two connector banks).
+        groups = [list(range(0, 32)) + list(range(96, 128)), list(range(32, 96))]
+        X = _random_data(n_times=600, n_ch=n_ch, rng=rng)
+
+        proc_fit = LRRTransformer(LRRSettings(channel_clusters=groups))
+        proc_fit.partial_fit(_make_axisarray(X))
+        W = proc_fit.state.weights.copy()
+        # W really is block-diagonal over the non-contiguous 64-ch groups.
+        for a in groups:
+            for b in groups:
+                if a is b:
+                    continue
+                np.testing.assert_array_equal(W[np.ix_(a, b)], 0.0)
+
+        # Apply the loaded W with block_size=32 (finer than the W's 64-ch blocks)
+        # and min_cluster_size=32 so the fallback clusters are NOT merged away.
+        # These 4x32 clusters do not match the W -> the block-diagonal apply used
+        # to silently overwrite. The result must still be the faithful X @ (I - W).
+        proc = LRRTransformer(LRRSettings(weights=W, block_size=32, min_cluster_size=32))
+        out = proc.send(_make_axisarray(X))
+        expected = X @ (np.eye(n_ch) - W)
+        np.testing.assert_allclose(out.data, expected, atol=1e-10)
 
 
 class TestLowChannelPassthrough:
