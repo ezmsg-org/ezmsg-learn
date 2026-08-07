@@ -420,11 +420,17 @@ class LRRTransformer(
         if self._state.affine is not None:
             self._state.affine.set_weights(effective)
         else:
+            # channel_clusters=None: let the affine detect blocks from the weight
+            # matrix itself. self._get_channel_clusters() can fall back to
+            # block_size here (cluster_by_field isn't resolved until a message
+            # arrives), and blocks finer than W's real ones make the block-diagonal
+            # matmul silently overwrite -- rereferencing each block against only
+            # part of its channels. W is the source of truth for its own blocks.
             self._state.affine = AffineTransformTransformer(
                 AffineTransformSettings(
                     weights=effective,
                     axis=self.settings.axis,
-                    channel_clusters=self._get_channel_clusters(n),
+                    channel_clusters=None,
                     min_cluster_size=self.settings.min_cluster_size,
                 )
             )
