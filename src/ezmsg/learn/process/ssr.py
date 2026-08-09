@@ -405,6 +405,10 @@ class LRRSettings(SelfSupervisedRegressionSettings):
 @processor_state
 class LRRState(SelfSupervisedRegressionState):
     affine: AffineTransformTransformer | None = None
+    effective: object | None = None
+    """Latest ``I - W``, in the namespace of the fitted weights. Held here rather
+    than pushed straight into an affine transformer because the affine is not
+    built until a message actually needs it -- see :meth:`LRRTransformer._process`."""
 
 
 class LRRTransformer(
@@ -420,34 +424,44 @@ class LRRTransformer(
 
     def _reset_state(self, message: AxisArray) -> None:
         self._state.affine = None
+        self._state.effective = None
         super()._reset_state(message)
 
     # -- weights → affine transform -----------------------------------------
+
+    def _make_affine(self, effective) -> AffineTransformTransformer:
+        # No channel_groups: the affine derives block structure from the weight
+        # matrix itself, and grouping only ever builds kind/callable weights --
+        # which these are not.
+        return AffineTransformTransformer(
+            AffineTransformSettings(
+                weights=effective,
+                axis=self.settings.axis,
+                kernel=self.settings.kernel,
+            )
+        )
 
     def _on_weights_updated(self) -> None:
         xp = get_namespace(self._state.weights)
         dev = array_device(self._state.weights)
         n = self._state.weights.shape[0]
         effective = xp_create(xp.eye, n, dtype=self._state.weights.dtype, device=dev) - self._state.weights
+        self._state.effective = effective
 
-        # Prefer in-place weight update when the affine transformer supports it
-        # (avoids a full _reset_state round-trip on every partial_fit). The
-        # default recalc_structure=False is what we want: refitting changes the
-        # weight *values*, not their sparsity pattern, which is fixed by the
-        # channel grouping.
+        # Update an existing affine in place (avoids a full _reset_state
+        # round-trip on every partial_fit). The default recalc_structure=False is
+        # what we want: refitting changes the weight *values*, not their sparsity
+        # pattern, which is fixed by the channel grouping.
+        #
+        # Do NOT construct the affine here when there isn't one. An affine built
+        # now would carry these weights in its *settings*, and its first
+        # _reset_state -- which does not happen until a message arrives -- rebuilds
+        # its state from those settings. Any refit in between would update state
+        # that is about to be overwritten, so a stream that fits several times
+        # before its first signal message would silently apply the *first* fit
+        # forever. _process builds it instead, from the latest weights.
         if self._state.affine is not None:
             self._state.affine.set_weights(effective)
-        else:
-            # No channel_groups: the affine derives block structure from the
-            # weight matrix itself, and grouping only ever builds kind/callable
-            # weights -- which these are not.
-            self._state.affine = AffineTransformTransformer(
-                AffineTransformSettings(
-                    weights=effective,
-                    axis=self.settings.axis,
-                    kernel=self.settings.kernel,
-                )
-            )
 
     # -- transform -----------------------------------------------------------
 
@@ -459,29 +473,27 @@ class LRRTransformer(
             # from empty channel groups would raise downstream.
             return message
         if self._state.affine is None:
-            axis_idx = message.get_axis_idx(axis)
-            n_channels = message.data.shape[axis_idx]
+            effective = self._state.effective
+            if effective is None:
+                axis_idx = message.get_axis_idx(axis)
+                n_channels = message.data.shape[axis_idx]
 
-            # No weights provided or fit yet: build the configured cold-start
-            # default (identity, or per-group leave-one-out CAR matching the
-            # fit's passthrough for groups below MIN_REREF_GROUP_SIZE).
-            # Built as numpy; the affine transformer converts weights to the
-            # message's namespace/dtype/device on first use.
-            groups = self._get_channel_groups(n_channels)
-            effective = rereference_matrix(
-                self.settings.init_default,
-                n_channels,
-                groups=None if groups is None else [group.tolist() for group in groups],
-                include_current=False,
-                min_reref_size=MIN_REREF_GROUP_SIZE,
-            )
-            self._state.affine = AffineTransformTransformer(
-                AffineTransformSettings(
-                    weights=effective,
-                    axis=self.settings.axis,
-                    kernel=self.settings.kernel,
+                # No weights provided or fit yet: build the configured cold-start
+                # default (identity, or per-group leave-one-out CAR matching the
+                # fit's passthrough for groups below MIN_REREF_GROUP_SIZE).
+                # Built as numpy; the affine transformer converts weights to the
+                # message's namespace/dtype/device on first use.
+                groups = self._get_channel_groups(n_channels)
+                effective = rereference_matrix(
+                    self.settings.init_default,
+                    n_channels,
+                    groups=None if groups is None else [group.tolist() for group in groups],
+                    include_current=False,
+                    min_reref_size=MIN_REREF_GROUP_SIZE,
                 )
-            )
+            # Deferred to here so the affine is built from the newest weights: any
+            # number of partial_fit calls may have landed since the last message.
+            self._state.affine = self._make_affine(effective)
         return self._state.affine(message)
 
 

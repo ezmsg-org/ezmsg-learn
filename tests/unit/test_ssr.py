@@ -380,6 +380,51 @@ class TestPartialFitTransform:
         np.testing.assert_allclose(out1.data, out2.data, atol=1e-12)
 
 
+class TestRefitBeforeFirstMessage:
+    """Regression: the internal affine must be built from the NEWEST weights.
+
+    ``LRRUnit`` takes training on ``INPUT_SAMPLE`` and signal on a separate
+    stream, so several ``partial_fit`` calls routinely land before the first
+    message is processed. Building the affine eagerly in ``_on_weights_updated``
+    put the first fit's weights in the affine's *settings*; its ``_reset_state``
+    (deferred until a message arrives) then rebuilt from those settings and
+    discarded every later fit, silently applying the first fit forever.
+    """
+
+    def test_multiple_fits_before_first_message(self):
+        rng = np.random.default_rng(0)
+        X1 = _random_data(n_ch=4, rng=rng)
+        X2 = _random_data(n_ch=4, rng=rng)
+
+        proc = LRRTransformer(LRRSettings(incremental=False))
+        proc.partial_fit(_make_axisarray(X1))
+        proc.partial_fit(_make_axisarray(X2))  # no message processed in between
+        out = proc.send(_make_axisarray(X2))
+
+        expected = X2 @ (np.eye(4) - proc.state.weights)
+        np.testing.assert_allclose(out.data, expected, atol=1e-10)
+
+        # And it is NOT the stale first fit.
+        stale = LRRTransformer(LRRSettings(incremental=False))
+        stale.partial_fit(_make_axisarray(X1))
+        assert not np.allclose(out.data, X2 @ (np.eye(4) - stale.state.weights), atol=1e-8)
+
+    def test_refit_after_first_message_still_applies(self):
+        """The in-place set_weights path (affine already built) stays correct."""
+        rng = np.random.default_rng(1)
+        X1 = _random_data(n_ch=4, rng=rng)
+        X2 = _random_data(n_ch=4, rng=rng)
+
+        proc = LRRTransformer(LRRSettings(incremental=False))
+        proc.partial_fit(_make_axisarray(X1))
+        proc.send(_make_axisarray(X1))  # builds the affine
+        proc.partial_fit(_make_axisarray(X2))
+        out = proc.send(_make_axisarray(X2))
+
+        expected = X2 @ (np.eye(4) - proc.state.weights)
+        np.testing.assert_allclose(out.data, expected, atol=1e-10)
+
+
 class TestPassthroughThenFit:
     def test_passthrough_then_fit(self):
         """Pre-fit send() should passthrough, then partial_fit() should update weights."""
