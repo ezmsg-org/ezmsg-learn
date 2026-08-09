@@ -1,9 +1,8 @@
 import numpy as np
 import pytest
 import sklearn.linear_model
-from ezmsg.sigproc.window import WindowTransformer
-from ezmsg.sigproc.window import WindowSettings
 from ezmsg.baseproc import SampleTriggerMessage
+from ezmsg.sigproc.window import WindowSettings, WindowTransformer
 from ezmsg.util.messages.axisarray import AxisArray, replace
 
 from ezmsg.learn.process.adaptive_linear_regressor import AdaptiveLinearRegressorTransformer

@@ -82,9 +82,7 @@ class DecodeOutputAdapterProcessor(
 
     def _reset_state(self, message: AxisArray) -> None:
         if self.settings.output_labels is not None:
-            self.state.ch_axis = AxisArray.CoordinateAxis(
-                data=np.asarray(self.settings.output_labels), dims=["ch"]
-            )
+            self.state.ch_axis = AxisArray.CoordinateAxis(data=np.asarray(self.settings.output_labels), dims=["ch"])
 
     def _process(self, message: AxisArray) -> AxisArray | None:
         data = np.asarray(message.data, dtype=float)
@@ -97,9 +95,7 @@ class DecodeOutputAdapterProcessor(
             ch_axis = self.state.ch_axis
         else:
             data = data.reshape((data.shape[0], -1)) if data.ndim > 1 else data.reshape((1, -1))
-            ch_axis = AxisArray.CoordinateAxis(
-                data=np.asarray([f"ch{i}" for i in range(data.shape[-1])]), dims=["ch"]
-            )
+            ch_axis = AxisArray.CoordinateAxis(data=np.asarray([f"ch{i}" for i in range(data.shape[-1])]), dims=["ch"])
 
         # The decoder engines carry a ``time`` axis through (kalman keeps the
         # input's; the torch path inherits the windower's renamed ``win``->``time``
@@ -266,9 +262,7 @@ def build_sample_adapt_regressor(
                         # Window requires zero_pad_until="input" when
                         # window_shift is None (1:1 mode); "none" there only
                         # warns and is coerced to "input".
-                        zero_pad_until="none"
-                        if self.SETTINGS.decode_window_shift is not None
-                        else "input",
+                        zero_pad_until="none" if self.SETTINGS.decode_window_shift is not None else "input",
                     )
                 )
                 self.FLATTEN.apply_settings(
@@ -293,11 +287,7 @@ def build_sample_adapt_regressor(
                     )
                 )
             if needs_adapter:
-                self.ADAPTER.apply_settings(
-                    DecodeOutputAdapterSettings(
-                        output_labels=self.SETTINGS.output_labels
-                    )
-                )
+                self.ADAPTER.apply_settings(DecodeOutputAdapterSettings(output_labels=self.SETTINGS.output_labels))
 
         def network(self) -> ez.NetworkDefinition:
             network = []
