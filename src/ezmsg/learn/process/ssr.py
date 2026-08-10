@@ -6,34 +6,35 @@ concrete implementation — Linear Regression Rereferencing (LRR) — via
 :class:`LRRTransformer`.
 
 **Framework.**  The base class accumulates the channel covariance
-``C = X^T X`` and solves per-cluster ridge regressions to obtain a weight
+``C = X^T X`` and solves per-group ridge regressions to obtain a weight
 matrix *W*.  Subclasses define what to *do* with *W* by implementing
 :meth:`~SelfSupervisedRegressionTransformer._on_weights_updated` and
 :meth:`~SelfSupervisedRegressionTransformer._process`.
 
 **LRR.**  For each channel *c*, predict it from the other channels in its
-cluster via ridge regression, then subtract the prediction::
+group via ridge regression, then subtract the prediction::
 
     y = X - X @ W = X @ (I - W)
 
 The effective weight matrix ``I - W`` is passed to
 :class:`~ezmsg.sigproc.affinetransform.AffineTransformTransformer`, which
-automatically exploits block-diagonal structure when ``channel_clusters``
-are provided.
+reads the block-diagonal structure off the weight matrix itself and picks
+a dense or block matmul accordingly — the channel grouping is an input to
+*fitting* only, never to applying.
 
 **Fitting.**  Given data matrix *X* of shape ``(samples, channels)``, the
 sufficient statistic is the channel covariance ``C = X^T X``.  When
 ``incremental=True`` (default), *C* is accumulated across
 :meth:`~SelfSupervisedRegressionTransformer.partial_fit` calls.
 
-**Solving.**  Within each cluster the weight matrix *W* is obtained from
-the inverse of the (ridge-regularised) cluster covariance
-``C_inv = (C_cluster + lambda * I)^{-1}`` using the block-inverse identity::
+**Solving.**  Within each group the weight matrix *W* is obtained from
+the inverse of the (ridge-regularised) group covariance
+``C_inv = (C_group + lambda * I)^{-1}`` using the block-inverse identity::
 
     W[:, c] = -C_inv[:, c] / C_inv[c, c],    diag(W) = 0
 
 This replaces the naive per-channel Cholesky loop with a single matrix
-inverse per cluster, keeping the linear algebra in the source array
+inverse per group, keeping the linear algebra in the source array
 namespace so that GPU-backed arrays benefit from device-side computation.
 """
 
@@ -58,19 +59,25 @@ from ezmsg.sigproc.affinetransform import (
     AffineTransformTransformer,
 )
 from ezmsg.sigproc.util.array import array_device, xp_create
-from ezmsg.sigproc.util.channels import channel_clusters_from_field, validate_channel_clusters
+from ezmsg.sigproc.util.channels import (
+    ChannelGroupSpec,
+    group_spec_fields,
+    group_spec_fingerprint,
+    resolve_channel_groups,
+    validate_channel_groups,
+)
 from ezmsg.sigproc.util.rereference import RereferenceKind, rereference_matrix
 from ezmsg.util.messages.axisarray import AxisArray
 
-# Minimum channels a cluster needs before it is rereferenced. Rereferencing
-# regresses each channel against the *others* in its cluster, so a cluster with
+# Minimum channels a group needs before it is rereferenced. Rereferencing
+# regresses each channel against the *others* in its group, so a group with
 # fewer than this many channels has too few references to be meaningful (1 -> no
-# reference at all; 2 -> a single, degenerate reference). Such clusters are passed
+# reference at all; 2 -> a single, degenerate reference). Such groups are passed
 # through untouched (identity). This also makes sliced/partial inputs robust: a
-# cluster reduced to a channel or two (or an empty cluster) is a no-op rather than
+# group reduced to a channel or two (or an empty group) is a no-op rather than
 # a crash or an unstable fit. Kept a module const for now; promote to a setting if
 # callers need to tune it.
-MIN_REREF_CLUSTER_SIZE = 3
+MIN_REREF_GROUP_SIZE = 3
 
 
 # ---------------------------------------------------------------------------
@@ -88,18 +95,19 @@ class SelfSupervisedRegressionSettings(ez.Settings):
     axis: str | None = None
     """Channel axis name. ``None`` defaults to the last dimension."""
 
-    channel_clusters: list[list[int]] | None = None
-    """Per-cluster regression.  ``None`` treats all channels as one cluster."""
+    channel_groups: ChannelGroupSpec | None = None
+    """How to split the channel axis into groups for per-group regression: explicit
+    index groups (``[[0, 1, 2], [3, 4, 5]]``), the name of a structured field on the
+    channel coordinate axis (``"bank"`` to regress within each electrode bank), a
+    tuple of field names, or a callable. See
+    :data:`~ezmsg.sigproc.util.channels.ChannelGroupSpec`.
 
-    cluster_by_field: str | None = None
-    """Derive ``channel_clusters`` automatically from a structured field of the
-    channel coordinate axis (e.g. ``"bank"`` to regress within each electrode
-    bank). Used only when ``channel_clusters`` is None and the axis actually
-    carries that field; otherwise falls back to ``block_size`` (then a single
-    cluster). Explicit ``channel_clusters`` always takes precedence."""
+    ``None`` -- or a field spec the incoming axis doesn't carry -- falls back to
+    ``block_size``, then to a single all-channel group."""
 
     block_size: int | None = None
-    """If ``channel_clusters`` is ``None``, use this block size for an automatic clustering."""
+    """Fallback grouping when ``channel_groups`` is ``None`` or resolves to nothing:
+    consecutive blocks of this many channels."""
 
     ridge_lambda: float = 0.0
     """Ridge (L2) regularisation parameter."""
@@ -114,9 +122,9 @@ class SelfSupervisedRegressionState:
     cxx: object | None = None  # Array API; namespace matches source data.
     n_samples: int = 0
     weights: object | None = None  # Array API; namespace matches cxx.
-    resolved_clusters: list | None = None
-    """Clusters derived from ``cluster_by_field`` at reset (message-dependent),
-    cached so ``_get_channel_clusters`` can return them without the message."""
+    resolved_groups: list | None = None
+    """``channel_groups`` resolved against the message at reset, cached so
+    ``_get_channel_groups`` can return them without one."""
 
 
 class SelfSupervisedRegressionTransformer(
@@ -138,37 +146,26 @@ class SelfSupervisedRegressionTransformer(
     def _hash_message(self, message: AxisArray) -> int:
         axis = self.settings.axis or message.dims[-1]
         axis_idx = message.get_axis_idx(axis)
-        components: tuple = (message.key, message.data.shape[axis_idx])
-        # On the cluster_by_field path, re-derive clusters only when the channel
-        # axis gains or loses the target structured field -- a single O(1)
-        # presence boolean rather than O(channels) of field bytes hashed on every
-        # message (which grows with channel count on this hot path). Concession:
-        # if the axis is already structured and the channel count is unchanged, a
-        # change in the field's *values* (a live bank remap) is not detected. That
-        # is safe for real acquisition streams, whose channel->field map is static
-        # for the stream's life; a genuine remap arrives with a new key or a
-        # different channel count, both already folded in above. Mirrors the
-        # ezmsg-sigproc CommonRereference hash.
-        if self.settings.channel_clusters is None and self.settings.cluster_by_field is not None:
-            ax = message.axes.get(axis)
-            names = getattr(getattr(getattr(ax, "data", None), "dtype", None), "names", None)
-            components += (bool(names and self.settings.cluster_by_field in names),)
-        return hash(components)
+        # group_spec_fingerprint contributes an O(1) "can this spec resolve?"
+        # boolean rather than the field's bytes, so the per-message hash does not
+        # grow with channel count. See its docstring for what that deliberately
+        # does not detect. Mirrors the ezmsg-sigproc transformers' hash.
+        return hash(
+            (message.key, message.data.shape[axis_idx])
+            + group_spec_fingerprint(message, axis, self.settings.channel_groups)
+        )
 
     def _reset_state(self, message: AxisArray) -> None:
         axis = self.settings.axis or message.dims[-1]
         axis_idx = message.get_axis_idx(axis)
         n_channels = message.data.shape[axis_idx]
 
-        # Derive clusters from a structured channel-axis field (e.g. "bank") when
-        # requested and no explicit clusters were given. Cached so the
-        # message-less _get_channel_clusters can return them later.
-        if self.settings.channel_clusters is None and self.settings.cluster_by_field is not None:
-            self._state.resolved_clusters = channel_clusters_from_field(message, axis, self.settings.cluster_by_field)
-        else:
-            self._state.resolved_clusters = None
+        # Resolve the grouping against this message (a field- or callable-based
+        # spec needs one). Cached so the message-less _get_channel_groups can
+        # return it later.
+        self._state.resolved_groups = resolve_channel_groups(message, axis, self.settings.channel_groups)
 
-        self._validate_clusters(n_channels)
+        self._validate_groups(n_channels)
         self._state.cxx = None
         self._state.n_samples = 0
         self._state.weights = None
@@ -184,39 +181,51 @@ class SelfSupervisedRegressionTransformer(
             self._state.weights = weights
             self._on_weights_updated()
 
-    # -- cluster validation --------------------------------------------------
+    # -- group resolution / validation ---------------------------------------
 
-    def _get_channel_clusters(self, n_channels: int) -> list[list[int]] | None:
-        # Precedence: explicit channel_clusters > cluster_by_field-derived
-        # (cached at reset) > block_size > None (single cluster).
-        clusters = self.settings.channel_clusters
-        if clusters is None:
-            clusters = getattr(self._state, "resolved_clusters", None)
-        if clusters is None and self.settings.block_size is not None:
-            clusters = [
-                list(range(i, min(i + self.settings.block_size, n_channels)))
+    def _static_channel_groups(self) -> list[np.ndarray] | None:
+        """Groups readable from the settings alone, without a message.
+
+        Explicit index groups are static; field-name and callable specs depend on
+        the message and are resolved in :meth:`_reset_state` instead. This is what
+        lets the message-less :meth:`fit` honour explicit groups.
+        """
+        spec = self.settings.channel_groups
+        if spec is None or callable(spec) or group_spec_fields(spec) is not None:
+            return None
+        return [np.asarray(group, dtype=np.intp).reshape(-1) for group in spec]
+
+    def _get_channel_groups(self, n_channels: int) -> list[np.ndarray] | None:
+        # Precedence: resolved channel_groups (cached at reset, or static explicit
+        # groups) > block_size > None (single all-channel group).
+        groups = self._state.resolved_groups
+        if groups is None:
+            groups = self._static_channel_groups()
+        if groups is None and self.settings.block_size is not None:
+            groups = [
+                np.arange(i, min(i + self.settings.block_size, n_channels), dtype=np.intp)
                 for i in range(0, n_channels, self.settings.block_size)
             ]
-        return clusters
+        return groups
 
-    def _validate_clusters(self, n_channels: int) -> None:
-        """Raise if any cluster index is out of range."""
-        clusters = self._get_channel_clusters(n_channels)
-        if clusters is None:
-            return  # implicit single cluster
-        if len(clusters) == 0:
-            # An empty cluster list is only legitimate with no channels (e.g. a
+    def _validate_groups(self, n_channels: int) -> None:
+        """Raise if the resolved groups are empty, out of range, or overlapping."""
+        groups = self._get_channel_groups(n_channels)
+        if groups is None:
+            return  # implicit single group
+        if len(groups) == 0:
+            # An empty group list is only legitimate with no channels (e.g. a
             # fully sliced-out input). With channels present it means an explicit
-            # channel_clusters=[], which would silently disable rereferencing --
+            # channel_groups=[], which would silently disable rereferencing --
             # fail fast instead.
             if n_channels == 0:
                 return
             raise ValueError(
-                f"channel_clusters is empty but the input has {n_channels} channels. "
-                "Pass channel_clusters=None to treat all channels as a single "
-                "cluster, or provide non-empty channel index groups."
+                f"channel_groups is empty but the input has {n_channels} channels. "
+                "Pass channel_groups=None to treat all channels as a single "
+                "group, or provide non-empty channel index groups."
             )
-        validate_channel_clusters(clusters, n_channels)
+        validate_channel_groups(groups, n_channels)
 
     # -- weight solving ------------------------------------------------------
 
@@ -225,13 +234,13 @@ class SelfSupervisedRegressionTransformer(
 
         Uses the block-inverse identity: for target channel *c* with
         references *r*, ``w_c = -C_inv[r, c] / C_inv[c, c]`` where
-        ``C_inv = (C_cluster + λI)⁻¹``.  This replaces the per-channel
-        Cholesky loop with one matrix inverse per cluster.
+        ``C_inv = (C_group + λI)⁻¹``.  This replaces the per-channel
+        Cholesky loop with one matrix inverse per group.
 
         All computation stays in the source array namespace so that
-        GPU-backed arrays benefit from device-side execution.  Cluster
+        GPU-backed arrays benefit from device-side execution.  Group
         results are scattered into the full matrix via a selection-matrix
-        multiply (``S @ W_cluster @ S^T``) to avoid numpy fancy indexing.
+        multiply (``S @ W_group @ S^T``) to avoid numpy fancy indexing.
 
         Returns weight matrix *W* in the same namespace as *cxx*, with
         ``diag(W) == 0``.
@@ -240,9 +249,9 @@ class SelfSupervisedRegressionTransformer(
         dev = array_device(cxx)
         n = cxx.shape[0]
 
-        clusters = self._get_channel_clusters(n)
-        if clusters is None:
-            clusters = [list(range(n))]
+        groups = self._get_channel_groups(n)
+        if groups is None:
+            groups = [np.arange(n, dtype=np.intp)]
 
         W = xp_create(xp.zeros, (n, n), dtype=cxx.dtype, device=dev)
         eye_n = xp_create(xp.eye, n, dtype=cxx.dtype, device=dev)
@@ -251,24 +260,26 @@ class SelfSupervisedRegressionTransformer(
         # stream is a scheduling hint, not a host copy, and results stay mlx.
         inv_kwargs = {"stream": xp.cpu} if xp.__name__ == "mlx.core" else {}
 
-        for cluster in clusters:
-            k = len(cluster)
-            if k < MIN_REREF_CLUSTER_SIZE:
+        for group in groups:
+            idx = np.asarray(group, dtype=np.intp).reshape(-1)
+            k = idx.size
+            if k < MIN_REREF_GROUP_SIZE:
                 # Too few channels to rereference against -- leave these channels
                 # untouched (W rows stay 0 -> identity). Covers sliced/partial
-                # clusters down to a single channel; never raises.
+                # groups down to a single channel; never raises.
                 continue
 
-            idx_xp = xp.asarray(cluster) if dev is None else xp.asarray(cluster, device=dev)
+            idx_list = idx.tolist()
+            idx_xp = xp.asarray(idx_list) if dev is None else xp.asarray(idx_list, device=dev)
             eye_k = xp_create(xp.eye, k, dtype=cxx.dtype, device=dev)
 
-            # Extract cluster sub-covariance (stays on device)
+            # Extract group sub-covariance (stays on device)
             sub = xp.take(xp.take(cxx, idx_xp, axis=0), idx_xp, axis=1)
 
             if self.settings.ridge_lambda > 0:
                 sub = sub + self.settings.ridge_lambda * eye_k
 
-            # One inverse per cluster
+            # One inverse per group
             try:
                 sub_inv = xp.linalg.inv(sub, **inv_kwargs)
             except Exception:
@@ -278,18 +289,20 @@ class SelfSupervisedRegressionTransformer(
             diag_vals = xp.sum(sub_inv * eye_k, axis=0)
 
             # w_c = -C_inv[:, c] / C_inv[c, c], vectorised over all c
-            W_cluster = -(sub_inv / xp.reshape(diag_vals, (1, k)))
+            W_group = -(sub_inv / xp.reshape(diag_vals, (1, k)))
 
             # Zero the diagonal
-            W_cluster = W_cluster * (1.0 - eye_k)
+            W_group = W_group * (1.0 - eye_k)
 
-            # Scatter into full W
-            if k == n:
-                W = W + W_cluster
+            # Scatter into full W. The no-op shortcut needs the group to be every
+            # channel *in order* -- a callable spec may return all n permuted, and
+            # then the sub-block still has to be scattered back.
+            if k == n and np.array_equal(idx, np.arange(n, dtype=np.intp)):
+                W = W + W_group
             else:
-                # Selection matrix: columns of eye(n) at cluster indices
+                # Selection matrix: columns of eye(n) at group indices
                 S = xp.take(eye_n, idx_xp, axis=1)  # (n, k)
-                W = W + xp.matmul(S, xp.matmul(W_cluster, xp.permute_dims(S, (1, 0))))
+                W = W + xp.matmul(S, xp.matmul(W_group, xp.permute_dims(S, (1, 0))))
 
         return W
 
@@ -341,7 +354,7 @@ class SelfSupervisedRegressionTransformer(
     def fit(self, X: np.ndarray) -> None:
         """Batch fit from a raw numpy array (samples x channels)."""
         n_channels = X.shape[-1]
-        self._validate_clusters(n_channels)
+        self._validate_groups(n_channels)
         if n_channels == 0:
             # No channels to fit -- same 0-channel no-op as partial_fit.
             return
@@ -374,15 +387,17 @@ class SelfSupervisedRegressionTransformer(
 class LRRSettings(SelfSupervisedRegressionSettings):
     """Settings for :class:`LRRTransformer`."""
 
-    min_cluster_size: int = 32
-    """Passed to :class:`AffineTransformTransformer` for the block-diagonal
-    merge threshold."""
+    kernel: str = "auto"
+    """Forwarded to :attr:`~ezmsg.sigproc.affinetransform.AffineTransformSettings.kernel`.
+    ``"auto"`` lets the affine transformer choose between a dense and a
+    block-diagonal matmul from the structure of ``I - W``; ``"dense"`` /
+    ``"blocks"`` force it."""
 
     init_default: RereferenceKind = RereferenceKind.IDENTITY
     """Effective transform used when ``weights`` is None and nothing has been fit
-    yet. ``IDENTITY`` passes through (legacy); ``CAR`` applies per-cluster
-    leave-one-out common-average referencing from the resolved clusters (clusters
-    below :data:`MIN_REREF_CLUSTER_SIZE` stay identity, matching the fit's
+    yet. ``IDENTITY`` passes through (legacy); ``CAR`` applies per-group
+    leave-one-out common-average referencing from the resolved groups (groups
+    below :data:`MIN_REREF_GROUP_SIZE` stay identity, matching the fit's
     passthrough). Provided or fitted weights always take precedence over this
     cold-start default."""
 
@@ -390,6 +405,10 @@ class LRRSettings(SelfSupervisedRegressionSettings):
 @processor_state
 class LRRState(SelfSupervisedRegressionState):
     affine: AffineTransformTransformer | None = None
+    effective: object | None = None
+    """Latest ``I - W``, in the namespace of the fitted weights. Held here rather
+    than pushed straight into an affine transformer because the affine is not
+    built until a message actually needs it -- see :meth:`LRRTransformer._process`."""
 
 
 class LRRTransformer(
@@ -405,35 +424,44 @@ class LRRTransformer(
 
     def _reset_state(self, message: AxisArray) -> None:
         self._state.affine = None
+        self._state.effective = None
         super()._reset_state(message)
 
     # -- weights → affine transform -----------------------------------------
+
+    def _make_affine(self, effective) -> AffineTransformTransformer:
+        # No channel_groups: the affine derives block structure from the weight
+        # matrix itself, and grouping only ever builds kind/callable weights --
+        # which these are not.
+        return AffineTransformTransformer(
+            AffineTransformSettings(
+                weights=effective,
+                axis=self.settings.axis,
+                kernel=self.settings.kernel,
+            )
+        )
 
     def _on_weights_updated(self) -> None:
         xp = get_namespace(self._state.weights)
         dev = array_device(self._state.weights)
         n = self._state.weights.shape[0]
         effective = xp_create(xp.eye, n, dtype=self._state.weights.dtype, device=dev) - self._state.weights
+        self._state.effective = effective
 
-        # Prefer in-place weight update when the affine transformer supports
-        # it (avoids a full _reset_state round-trip on every partial_fit).
+        # Update an existing affine in place (avoids a full _reset_state
+        # round-trip on every partial_fit). The default recalc_structure=False is
+        # what we want: refitting changes the weight *values*, not their sparsity
+        # pattern, which is fixed by the channel grouping.
+        #
+        # Do NOT construct the affine here when there isn't one. An affine built
+        # now would carry these weights in its *settings*, and its first
+        # _reset_state -- which does not happen until a message arrives -- rebuilds
+        # its state from those settings. Any refit in between would update state
+        # that is about to be overwritten, so a stream that fits several times
+        # before its first signal message would silently apply the *first* fit
+        # forever. _process builds it instead, from the latest weights.
         if self._state.affine is not None:
             self._state.affine.set_weights(effective)
-        else:
-            # channel_clusters=None: let the affine detect blocks from the weight
-            # matrix itself. self._get_channel_clusters() can fall back to
-            # block_size here (cluster_by_field isn't resolved until a message
-            # arrives), and blocks finer than W's real ones make the block-diagonal
-            # matmul silently overwrite -- rereferencing each block against only
-            # part of its channels. W is the source of truth for its own blocks.
-            self._state.affine = AffineTransformTransformer(
-                AffineTransformSettings(
-                    weights=effective,
-                    axis=self.settings.axis,
-                    channel_clusters=None,
-                    min_cluster_size=self.settings.min_cluster_size,
-                )
-            )
 
     # -- transform -----------------------------------------------------------
 
@@ -442,32 +470,30 @@ class LRRTransformer(
         if message.data.shape[message.get_axis_idx(axis)] == 0:
             # No channels (e.g. a fully sliced-out hub): nothing to rereference.
             # Pass the 0-channel message through unchanged -- building an affine
-            # from empty channel clusters would raise downstream.
+            # from empty channel groups would raise downstream.
             return message
         if self._state.affine is None:
-            axis_idx = message.get_axis_idx(axis)
-            n_channels = message.data.shape[axis_idx]
+            effective = self._state.effective
+            if effective is None:
+                axis_idx = message.get_axis_idx(axis)
+                n_channels = message.data.shape[axis_idx]
 
-            # No weights provided or fit yet: build the configured cold-start
-            # default (identity, or per-cluster leave-one-out CAR matching the
-            # fit's passthrough for clusters below MIN_REREF_CLUSTER_SIZE).
-            # Built as numpy; the affine transformer converts weights to the
-            # message's namespace/dtype/device on first use.
-            effective = rereference_matrix(
-                self.settings.init_default,
-                n_channels,
-                clusters=self._get_channel_clusters(n_channels),
-                include_current=False,
-                min_reref_size=MIN_REREF_CLUSTER_SIZE,
-            )
-            self._state.affine = AffineTransformTransformer(
-                AffineTransformSettings(
-                    weights=effective,
-                    axis=self.settings.axis,
-                    channel_clusters=self._get_channel_clusters(n_channels),
-                    min_cluster_size=self.settings.min_cluster_size,
+                # No weights provided or fit yet: build the configured cold-start
+                # default (identity, or per-group leave-one-out CAR matching the
+                # fit's passthrough for groups below MIN_REREF_GROUP_SIZE).
+                # Built as numpy; the affine transformer converts weights to the
+                # message's namespace/dtype/device on first use.
+                groups = self._get_channel_groups(n_channels)
+                effective = rereference_matrix(
+                    self.settings.init_default,
+                    n_channels,
+                    groups=None if groups is None else [group.tolist() for group in groups],
+                    include_current=False,
+                    min_reref_size=MIN_REREF_GROUP_SIZE,
                 )
-            )
+            # Deferred to here so the affine is built from the newest weights: any
+            # number of partial_fit calls may have landed since the last message.
+            self._state.affine = self._make_affine(effective)
         return self._state.affine(message)
 
 

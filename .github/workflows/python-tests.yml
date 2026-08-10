@@ -34,8 +34,11 @@ jobs:
         run: uv sync
 
       - name: Lint
+        # uv run, not uv tool run: the latter resolves ruff independently and
+        # would ignore the version pinned in the lint dependency-group, so a new
+        # ruff release could turn CI red with no change to this repo.
         run:
-          uv tool run ruff check --output-format=github src
+          uv run ruff check --output-format=github src
 
       - name: Run unit tests
         run: uv run pytest tests/unit tests/dim_reduce -v

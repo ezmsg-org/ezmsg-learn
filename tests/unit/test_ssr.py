@@ -7,7 +7,7 @@ import pytest
 from ezmsg.util.messages.axisarray import AxisArray
 
 from ezmsg.learn.process.ssr import (
-    MIN_REREF_CLUSTER_SIZE,
+    MIN_REREF_GROUP_SIZE,
     LRRSettings,
     LRRTransformer,
     RereferenceKind,
@@ -111,33 +111,33 @@ class TestDiagonalZero:
         np.testing.assert_array_equal(np.diag(proc.state.weights), 0.0)
 
 
-class TestChannelClusters:
-    def test_channel_clusters(self):
-        """Cross-cluster weights must be zero; within-cluster weights non-zero."""
+class TestChannelGroups:
+    def test_channel_groups(self):
+        """Cross-group weights must be zero; within-group weights non-zero."""
         rng = np.random.default_rng(3)
         n_ch = 8
-        clusters = [[0, 1, 2, 3], [4, 5, 6, 7]]
+        groups = [[0, 1, 2, 3], [4, 5, 6, 7]]
         X = _random_data(n_ch=n_ch, rng=rng)
         msg = _make_axisarray(X)
 
-        proc = LRRTransformer(LRRSettings(channel_clusters=clusters))
+        proc = LRRTransformer(LRRSettings(channel_groups=groups))
         proc.partial_fit(msg)
 
         W = proc.state.weights
 
-        # Cross-cluster should be zero
-        for c1 in clusters:
-            for c2 in clusters:
+        # Cross-group should be zero
+        for c1 in groups:
+            for c2 in groups:
                 if c1 is c2:
                     continue
                 cross = W[np.ix_(c1, c2)]
                 np.testing.assert_array_equal(cross, 0.0)
 
-        # Within-cluster (off-diagonal) should be non-zero
-        for cluster in clusters:
-            sub = W[np.ix_(cluster, cluster)]
-            off_diag = sub[~np.eye(len(cluster), dtype=bool)]
-            assert np.any(off_diag != 0), "Expected non-zero within-cluster weights"
+        # Within-group (off-diagonal) should be non-zero
+        for group in groups:
+            sub = W[np.ix_(group, group)]
+            off_diag = sub[~np.eye(len(group), dtype=bool)]
+            assert np.any(off_diag != 0), "Expected non-zero within-group weights"
 
 
 def _banked_axisarray(data: np.ndarray, banks: list[str], key: str = "test") -> AxisArray:
@@ -156,18 +156,18 @@ def _banked_axisarray(data: np.ndarray, banks: list[str], key: str = "test") -> 
     )
 
 
-class TestClusterByField:
-    def test_bank_field_matches_explicit_clusters(self):
-        """cluster_by_field='bank' derives the same clusters (and weights) as
-        passing the equivalent explicit channel_clusters."""
+class TestGroupByField:
+    def test_bank_field_matches_explicit_groups(self):
+        """channel_groups='bank' derives the same groups (and weights) as
+        passing the equivalent explicit channel_groups."""
         rng = np.random.default_rng(7)
         banks = ["A", "A", "A", "A", "B", "B", "B", "B"]
         X = _random_data(n_ch=len(banks), rng=rng)
 
-        proc_field = LRRTransformer(LRRSettings(axis="ch", cluster_by_field="bank"))
+        proc_field = LRRTransformer(LRRSettings(axis="ch", channel_groups="bank"))
         proc_field.partial_fit(_banked_axisarray(X, banks))
 
-        proc_explicit = LRRTransformer(LRRSettings(axis="ch", channel_clusters=[[0, 1, 2, 3], [4, 5, 6, 7]]))
+        proc_explicit = LRRTransformer(LRRSettings(axis="ch", channel_groups=[[0, 1, 2, 3], [4, 5, 6, 7]]))
         proc_explicit.partial_fit(_make_axisarray(X))
 
         np.testing.assert_array_equal(proc_field.state.weights, proc_explicit.state.weights)
@@ -175,26 +175,52 @@ class TestClusterByField:
         W = proc_field.state.weights
         np.testing.assert_array_equal(W[np.ix_([0, 1, 2, 3], [4, 5, 6, 7])], 0.0)
 
-    def test_explicit_clusters_take_precedence(self):
-        """Explicit channel_clusters win over cluster_by_field."""
+    def test_callable_spec(self):
+        """A callable spec is resolved against the message like any other."""
         rng = np.random.default_rng(8)
         banks = ["A", "A", "A", "A", "B", "B", "B", "B"]
         X = _random_data(n_ch=len(banks), rng=rng)
 
-        # One all-channel cluster should override the bank grouping.
-        proc = LRRTransformer(LRRSettings(axis="ch", channel_clusters=[list(range(8))], cluster_by_field="bank"))
+        # A callable returning one all-channel group: cross-"bank" weights are
+        # then NOT forced to zero.
+        proc = LRRTransformer(LRRSettings(axis="ch", channel_groups=lambda msg, axis: [list(range(8))]))
         proc.partial_fit(_banked_axisarray(X, banks))
-        # With a single cluster, cross-"bank" weights are NOT forced to zero.
         W = proc.state.weights
         assert np.any(W[np.ix_([0, 1, 2, 3], [4, 5, 6, 7])] != 0)
 
+    def test_multi_field_spec(self):
+        """A tuple of field names groups by their combination."""
+        n_ch = 8
+        dt = np.dtype([("array", "U1"), ("bank", "U1")])
+        ch = np.zeros(n_ch, dtype=dt)
+        ch["array"] = ["1", "1", "1", "1", "2", "2", "2", "2"]
+        ch["bank"] = ["A", "A", "B", "B", "A", "A", "B", "B"]
+        X = _random_data(n_ch=n_ch, rng=np.random.default_rng(21))
+        msg = AxisArray(
+            data=X,
+            dims=["time", "ch"],
+            axes={
+                "time": AxisArray.TimeAxis(fs=100.0, offset=0.0),
+                "ch": AxisArray.CoordinateAxis(data=ch, dims=["ch"]),
+            },
+            key="test",
+        )
+
+        proc = LRRTransformer(LRRSettings(axis="ch", channel_groups=("array", "bank")))
+        proc.partial_fit(msg)
+
+        # (array, bank) -> four groups of 2, each below MIN_REREF_GROUP_SIZE, so
+        # every weight stays zero (identity passthrough).
+        assert [g.tolist() for g in proc.state.resolved_groups] == [[0, 1], [2, 3], [4, 5], [6, 7]]
+        np.testing.assert_array_equal(proc.state.weights, 0.0)
+
     def test_missing_field_falls_back_to_block_size(self):
-        """cluster_by_field with no structured bank field falls back to block_size."""
+        """channel_groups with no structured bank field falls back to block_size."""
         rng = np.random.default_rng(9)
         n_ch = 8
         X = _random_data(n_ch=n_ch, rng=rng)
         # Plain axis (no structured bank field) + block_size=4 -> two contiguous blocks.
-        proc_field = LRRTransformer(LRRSettings(axis="ch", cluster_by_field="bank", block_size=4))
+        proc_field = LRRTransformer(LRRSettings(axis="ch", channel_groups="bank", block_size=4))
         proc_field.partial_fit(_make_axisarray(X))
 
         proc_block = LRRTransformer(LRRSettings(axis="ch", block_size=4))
@@ -210,21 +236,21 @@ class TestClusterByField:
         real hardware arrives with a new key or channel count (escape hatch below)."""
         rng = np.random.default_rng(11)
         X = _random_data(n_ch=4, rng=rng)
-        proc = LRRTransformer(LRRSettings(axis="ch", cluster_by_field="bank"))
+        proc = LRRTransformer(LRRSettings(axis="ch", channel_groups="bank"))
 
-        # First arrangement: banks A,A,B,B -> clusters {0,1},{2,3}.
+        # First arrangement: banks A,A,B,B -> groups {0,1},{2,3}.
         proc.partial_fit(_banked_axisarray(X, ["A", "A", "B", "B"], key="x"))
-        assert proc.state.resolved_clusters == [[0, 1], [2, 3]]
+        assert [g.tolist() for g in proc.state.resolved_groups] == [[0, 1], [2, 3]]
         np.testing.assert_array_equal(proc.state.weights[np.ix_([0, 1], [2, 3])], 0.0)
 
         # Same key + channel count, different banks -> hash unchanged, so the
-        # cached clusters are (deliberately) NOT re-derived.
+        # cached groups are (deliberately) NOT re-derived.
         proc.partial_fit(_banked_axisarray(X, ["A", "B", "A", "B"], key="x"))
-        assert proc.state.resolved_clusters == [[0, 1], [2, 3]]
+        assert [g.tolist() for g in proc.state.resolved_groups] == [[0, 1], [2, 3]]
 
         # Escape hatch: a new key (as a real remap would carry) forces re-derivation.
         proc.partial_fit(_banked_axisarray(X, ["A", "B", "A", "B"], key="y"))
-        assert proc.state.resolved_clusters == [[0, 2], [1, 3]]
+        assert [g.tolist() for g in proc.state.resolved_groups] == [[0, 2], [1, 3]]
 
 
 class TestIncrementalAccumulates:
@@ -354,6 +380,51 @@ class TestPartialFitTransform:
         np.testing.assert_allclose(out1.data, out2.data, atol=1e-12)
 
 
+class TestRefitBeforeFirstMessage:
+    """Regression: the internal affine must be built from the NEWEST weights.
+
+    ``LRRUnit`` takes training on ``INPUT_SAMPLE`` and signal on a separate
+    stream, so several ``partial_fit`` calls routinely land before the first
+    message is processed. Building the affine eagerly in ``_on_weights_updated``
+    put the first fit's weights in the affine's *settings*; its ``_reset_state``
+    (deferred until a message arrives) then rebuilt from those settings and
+    discarded every later fit, silently applying the first fit forever.
+    """
+
+    def test_multiple_fits_before_first_message(self):
+        rng = np.random.default_rng(0)
+        X1 = _random_data(n_ch=4, rng=rng)
+        X2 = _random_data(n_ch=4, rng=rng)
+
+        proc = LRRTransformer(LRRSettings(incremental=False))
+        proc.partial_fit(_make_axisarray(X1))
+        proc.partial_fit(_make_axisarray(X2))  # no message processed in between
+        out = proc.send(_make_axisarray(X2))
+
+        expected = X2 @ (np.eye(4) - proc.state.weights)
+        np.testing.assert_allclose(out.data, expected, atol=1e-10)
+
+        # And it is NOT the stale first fit.
+        stale = LRRTransformer(LRRSettings(incremental=False))
+        stale.partial_fit(_make_axisarray(X1))
+        assert not np.allclose(out.data, X2 @ (np.eye(4) - stale.state.weights), atol=1e-8)
+
+    def test_refit_after_first_message_still_applies(self):
+        """The in-place set_weights path (affine already built) stays correct."""
+        rng = np.random.default_rng(1)
+        X1 = _random_data(n_ch=4, rng=rng)
+        X2 = _random_data(n_ch=4, rng=rng)
+
+        proc = LRRTransformer(LRRSettings(incremental=False))
+        proc.partial_fit(_make_axisarray(X1))
+        proc.send(_make_axisarray(X1))  # builds the affine
+        proc.partial_fit(_make_axisarray(X2))
+        out = proc.send(_make_axisarray(X2))
+
+        expected = X2 @ (np.eye(4) - proc.state.weights)
+        np.testing.assert_allclose(out.data, expected, atol=1e-10)
+
+
 class TestPassthroughThenFit:
     def test_passthrough_then_fit(self):
         """Pre-fit send() should passthrough, then partial_fit() should update weights."""
@@ -374,35 +445,56 @@ class TestPassthroughThenFit:
         np.testing.assert_allclose(out_after.data, expected, atol=1e-10)
 
 
-class TestInvalidClusterIndicesRaise:
-    def test_invalid_cluster_indices_raise(self):
-        """Out-of-range indices in channel_clusters should raise ValueError."""
+class TestInvalidGroupIndicesRaise:
+    def test_invalid_group_indices_raise(self):
+        """Out-of-range indices in channel_groups should raise ValueError."""
         rng = np.random.default_rng(11)
         X = _random_data(n_ch=4, rng=rng)
         msg = _make_axisarray(X)
 
-        proc = LRRTransformer(LRRSettings(channel_clusters=[[0, 1, 99]]))
+        proc = LRRTransformer(LRRSettings(channel_groups=[[0, 1, 99]]))
         with pytest.raises(ValueError, match="out-of-range"):
             proc.partial_fit(msg)
 
 
-class TestClustersEngageBlockDiagonal:
-    def test_clusters_engage_block_diagonal(self):
-        """When clusters create a block-diagonal I-W, AffineTransform uses cluster opt."""
+class TestGroupsEngageBlockDiagonal:
+    def test_groups_engage_block_diagonal(self):
+        """kernel='blocks' forces the block-diagonal matmul over the blocks the
+        affine reads off I - W; the result must equal the dense matmul."""
         rng = np.random.default_rng(12)
         n_ch = 8
-        clusters = [[0, 1, 2, 3], [4, 5, 6, 7]]
+        groups = [[0, 1, 2, 3], [4, 5, 6, 7]]
         X = _random_data(n_ch=n_ch, n_times=300, rng=rng)
         msg = _make_axisarray(X)
 
-        proc = LRRTransformer(LRRSettings(channel_clusters=clusters, min_cluster_size=1))
+        proc = LRRTransformer(LRRSettings(channel_groups=groups, kernel="blocks"))
         proc.partial_fit(msg)
         out = proc.send(msg)
+
+        # The affine really is on the block path, and it found the two 4-ch blocks.
+        assert proc.state.affine.state.blocks is not None
+        assert len(proc.state.affine.state.blocks) == 2
 
         # Verify output is correct — the block-diagonal path should produce
         # the same result as a full matmul.
         W = proc.state.weights
         expected = X @ (np.eye(n_ch) - W)
+        np.testing.assert_allclose(out.data, expected, atol=1e-10)
+
+    def test_kernel_dense_forces_dense(self):
+        """kernel='dense' keeps the full matrix even when I - W is block-diagonal."""
+        rng = np.random.default_rng(13)
+        n_ch = 8
+        X = _random_data(n_ch=n_ch, n_times=300, rng=rng)
+        msg = _make_axisarray(X)
+
+        proc = LRRTransformer(LRRSettings(channel_groups=[[0, 1, 2, 3], [4, 5, 6, 7]], kernel="dense"))
+        proc.partial_fit(msg)
+        out = proc.send(msg)
+
+        assert proc.state.affine.state.blocks is None
+        assert proc.state.affine.state.weights is not None
+        expected = X @ (np.eye(n_ch) - proc.state.weights)
         np.testing.assert_allclose(out.data, expected, atol=1e-10)
 
 
@@ -453,19 +545,22 @@ class TestPrecalculatedWeightsFromFile:
 
 class TestApplyFollowsWeightBlocks:
     """Regression: applying fit/loaded weights must equal ``X @ (I - W)`` no matter
-    what ``block_size`` / ``cluster_by_field`` the transformer carries.
+    what ``block_size`` / ``channel_groups`` the transformer carries.
 
     The block-diagonal apply optimization must follow the WEIGHT MATRIX's real
-    block structure, not a cluster hint that may not match it. Previously the
-    affine was built with ``_get_channel_clusters()``, which falls back to
-    ``block_size`` when the ``cluster_by_field`` metadata is absent at apply time
+    block structure, not a group hint that may not match it. Previously the
+    affine was built with ``_get_channel_groups()``, which falls back to
+    ``block_size`` when the ``channel_groups`` metadata is absent at apply time
     (e.g. a processor constructed with weights before any message resolves the
-    field). When those fallback clusters were FINER than the W's true blocks --
+    field). When those fallback groups were FINER than the W's true blocks --
     as when a W is fit over non-contiguous electrode-array groups but applied with
     a smaller ``block_size`` -- two input sub-groups of one true block mapped to
     the same output indices, and the block-diagonal matmul's assignment silently
     OVERWROTE the earlier sub-group. Each true block was then rereferenced against
     only a subset of its channels, corrupting the output while looking valid.
+
+    ezmsg-sigproc#198 removed the hint's ability to matter at all: structure is
+    now always read off W. This test keeps the guarantee pinned from this side.
     """
 
     def test_apply_ignores_block_size_finer_than_weight_blocks(self):
@@ -476,7 +571,7 @@ class TestApplyFollowsWeightBlocks:
         groups = [list(range(0, 32)) + list(range(96, 128)), list(range(32, 96))]
         X = _random_data(n_times=600, n_ch=n_ch, rng=rng)
 
-        proc_fit = LRRTransformer(LRRSettings(channel_clusters=groups))
+        proc_fit = LRRTransformer(LRRSettings(channel_groups=groups))
         proc_fit.partial_fit(_make_axisarray(X))
         W = proc_fit.state.weights.copy()
         # W really is block-diagonal over the non-contiguous 64-ch groups.
@@ -486,30 +581,31 @@ class TestApplyFollowsWeightBlocks:
                     continue
                 np.testing.assert_array_equal(W[np.ix_(a, b)], 0.0)
 
-        # Apply the loaded W with block_size=32 (finer than the W's 64-ch blocks)
-        # and min_cluster_size=32 so the fallback clusters are NOT merged away.
-        # These 4x32 clusters do not match the W -> the block-diagonal apply used
+        # Apply the loaded W with block_size=32 (finer than the W's 64-ch blocks).
+        # These 4x32 groups do not match the W -> the block-diagonal apply used
         # to silently overwrite. The result must still be the faithful X @ (I - W).
-        proc = LRRTransformer(LRRSettings(weights=W, block_size=32, min_cluster_size=32))
+        # kernel="blocks" forces the block path so the guarantee is tested there
+        # rather than at whatever the planner happens to pick for this size.
+        proc = LRRTransformer(LRRSettings(weights=W, block_size=32, kernel="blocks"))
         out = proc.send(_make_axisarray(X))
         expected = X @ (np.eye(n_ch) - W)
         np.testing.assert_allclose(out.data, expected, atol=1e-10)
 
 
 class TestLowChannelPassthrough:
-    """Clusters smaller than MIN_REREF_CLUSTER_SIZE (and empty inputs) pass
+    """Groups smaller than MIN_REREF_GROUP_SIZE (and empty inputs) pass
     through untouched instead of crashing -- so sliced/partial channel sets are
     safe (e.g. a hub left with no channels after an upstream region slice)."""
 
     def _fit_process(self, data: np.ndarray, banks: list[str]) -> np.ndarray:
-        proc = LRRTransformer(LRRSettings(axis="ch", cluster_by_field="bank"))
+        proc = LRRTransformer(LRRSettings(axis="ch", channel_groups="bank"))
         for _ in range(8):
             proc.partial_fit(_banked_axisarray(data, banks))
         return np.asarray(proc(_banked_axisarray(data, banks)).data)
 
     def test_zero_channels_passthrough(self):
         """0 channels (fully sliced-out hub) must not crash on fit or process."""
-        proc = LRRTransformer(LRRSettings(axis="ch", cluster_by_field="bank"))
+        proc = LRRTransformer(LRRSettings(axis="ch", channel_groups="bank"))
         empty = _banked_axisarray(np.zeros((10, 0)), [])
         proc.partial_fit(empty)  # no channels to fit -- must be a no-op
         out = proc(empty)  # must pass through, not build an affine from []
@@ -529,25 +625,25 @@ class TestLowChannelPassthrough:
         np.testing.assert_allclose(out, X, atol=1e-10)
 
     def test_below_threshold_identity(self):
-        """A cluster with < MIN_REREF_CLUSTER_SIZE channels is left untouched."""
-        n = MIN_REREF_CLUSTER_SIZE - 1
+        """A group with < MIN_REREF_GROUP_SIZE channels is left untouched."""
+        n = MIN_REREF_GROUP_SIZE - 1
         rng = np.random.default_rng(2)
         X = _common_mode_data(n_ch=n, rng=rng)
         out = self._fit_process(X, ["A"] * n)
         np.testing.assert_allclose(out, X, atol=1e-10)
 
     def test_at_threshold_rereferences(self):
-        """A cluster with exactly MIN_REREF_CLUSTER_SIZE channels is rereferenced."""
-        n = MIN_REREF_CLUSTER_SIZE
+        """A group with exactly MIN_REREF_GROUP_SIZE channels is rereferenced."""
+        n = MIN_REREF_GROUP_SIZE
         rng = np.random.default_rng(3)
         X = _common_mode_data(n_ch=n, rng=rng)
         out = self._fit_process(X, ["A"] * n)
         assert np.max(np.abs(out - X)) > 1e-3
 
-    def test_mixed_small_and_large_clusters(self):
-        """Per-cluster: a full bank rereferences while a lone-channel bank in the
+    def test_mixed_small_and_large_groups(self):
+        """Per-group: a full bank rereferences while a lone-channel bank in the
         same message passes through untouched."""
-        big = MIN_REREF_CLUSTER_SIZE + 1
+        big = MIN_REREF_GROUP_SIZE + 1
         rng = np.random.default_rng(4)
         X = _common_mode_data(n_ch=big + 1, rng=rng)
         banks = ["A"] * big + ["B"]  # bank A: big ch, bank B: 1 ch
@@ -555,49 +651,49 @@ class TestLowChannelPassthrough:
         np.testing.assert_allclose(out[:, big], X[:, big], atol=1e-10)  # lone B ch untouched
         assert np.max(np.abs(out[:, :big] - X[:, :big])) > 1e-3  # bank A rereferenced
 
-    def test_empty_explicit_clusters_with_channels_raises(self):
-        """channel_clusters=[] with real channels is a misconfiguration: fail fast
+    def test_empty_explicit_groups_with_channels_raises(self):
+        """channel_groups=[] with real channels is a misconfiguration: fail fast
         rather than silently disable rereferencing (the empty list is only
         tolerated when there are no channels)."""
-        proc = LRRTransformer(LRRSettings(axis="ch", channel_clusters=[]))
+        proc = LRRTransformer(LRRSettings(axis="ch", channel_groups=[]))
         with pytest.raises(ValueError, match="empty but the input has"):
             proc.partial_fit(_make_axisarray(_random_data(n_ch=8)))
 
 
 class TestCARInit:
-    """init_default=CAR: cold-start per-cluster leave-one-out CAR when there are
+    """init_default=CAR: cold-start per-group leave-one-out CAR when there are
     no weights and nothing has been fit."""
 
     @staticmethod
-    def _loo_car(X: np.ndarray, clusters) -> np.ndarray:
-        """Reference per-cluster leave-one-out CAR: y_i = x_i - mean_{j!=i} x_j."""
+    def _loo_car(X: np.ndarray, groups) -> np.ndarray:
+        """Reference per-group leave-one-out CAR: y_i = x_i - mean_{j!=i} x_j."""
         out = X.copy()
-        for cl in clusters:
-            if len(cl) < MIN_REREF_CLUSTER_SIZE:
+        for cl in groups:
+            if len(cl) < MIN_REREF_GROUP_SIZE:
                 continue
             block = X[:, cl]
             loo = (block.sum(axis=1, keepdims=True) - block) / (len(cl) - 1)
             out[:, cl] = block - loo
         return out
 
-    def test_car_applies_leave_one_out_per_cluster(self):
-        clusters = [[0, 1, 2, 3], [4, 5, 6, 7]]
+    def test_car_applies_leave_one_out_per_group(self):
+        groups = [[0, 1, 2, 3], [4, 5, 6, 7]]
         X = _random_data(n_ch=8)
-        proc = LRRTransformer(LRRSettings(channel_clusters=clusters, init_default=RereferenceKind.CAR))
+        proc = LRRTransformer(LRRSettings(channel_groups=groups, init_default=RereferenceKind.CAR))
         out = proc.send(_make_axisarray(X))  # no fit / no weights
-        np.testing.assert_allclose(out.data, self._loo_car(X, clusters), atol=1e-10)
+        np.testing.assert_allclose(out.data, self._loo_car(X, groups), atol=1e-10)
 
-    def test_car_leaves_small_clusters_identity(self):
-        # first cluster (size 2 < MIN_REREF_CLUSTER_SIZE) must pass through
-        clusters = [[0, 1], [2, 3, 4, 5, 6, 7]]
+    def test_car_leaves_small_groups_identity(self):
+        # first group (size 2 < MIN_REREF_GROUP_SIZE) must pass through
+        groups = [[0, 1], [2, 3, 4, 5, 6, 7]]
         X = _random_data(n_ch=8)
-        proc = LRRTransformer(LRRSettings(channel_clusters=clusters, init_default=RereferenceKind.CAR))
+        proc = LRRTransformer(LRRSettings(channel_groups=groups, init_default=RereferenceKind.CAR))
         out = proc.send(_make_axisarray(X))
         np.testing.assert_allclose(out.data[:, :2], X[:, :2], atol=1e-12)
-        np.testing.assert_allclose(out.data, self._loo_car(X, clusters), atol=1e-10)
+        np.testing.assert_allclose(out.data, self._loo_car(X, groups), atol=1e-10)
 
     def test_car_from_bank_field(self):
-        """cluster_by_field='bank' + CAR reproduces per-bank leave-one-out CAR."""
+        """channel_groups='bank' + CAR reproduces per-bank leave-one-out CAR."""
         n_ch = 8
         ch = np.zeros(n_ch, dtype=[("bank", "U1")])
         ch["bank"][:4], ch["bank"][4:] = "A", "B"
@@ -611,14 +707,14 @@ class TestCARInit:
             },
             key="test",
         )
-        proc = LRRTransformer(LRRSettings(axis="ch", cluster_by_field="bank", init_default=RereferenceKind.CAR))
+        proc = LRRTransformer(LRRSettings(axis="ch", channel_groups="bank", init_default=RereferenceKind.CAR))
         out = proc.send(msg)
         np.testing.assert_allclose(out.data, self._loo_car(X, [[0, 1, 2, 3], [4, 5, 6, 7]]), atol=1e-10)
 
     def test_default_init_is_identity_passthrough(self):
         """Default (IDENTITY) with no weights is unchanged legacy passthrough."""
         X = _random_data(n_ch=8)
-        proc = LRRTransformer(LRRSettings(channel_clusters=[[0, 1, 2, 3], [4, 5, 6, 7]]))
+        proc = LRRTransformer(LRRSettings(channel_groups=[[0, 1, 2, 3], [4, 5, 6, 7]]))
         out = proc.send(_make_axisarray(X))
         np.testing.assert_allclose(out.data, X, atol=1e-12)
 
@@ -633,17 +729,17 @@ class TestCARInit:
     def test_fit_overrides_car(self):
         """A fitted LRR takes precedence over the CAR cold-start default: once
         weights are learned, output is the fitted rereference, not CAR."""
-        clusters = [[0, 1, 2, 3], [4, 5, 6, 7]]
+        groups = [[0, 1, 2, 3], [4, 5, 6, 7]]
         X = _random_data(n_ch=8, n_times=400)
         msg = _make_axisarray(X)
-        proc = LRRTransformer(LRRSettings(channel_clusters=clusters, init_default=RereferenceKind.CAR))
+        proc = LRRTransformer(LRRSettings(channel_groups=groups, init_default=RereferenceKind.CAR))
         proc.partial_fit(msg)
         out = proc.send(msg)
 
         fitted = X @ (np.eye(8) - proc.state.weights)
         np.testing.assert_allclose(out.data, fitted, atol=1e-8)
         # And it is NOT the CAR cold-start.
-        assert not np.allclose(out.data, self._loo_car(X, clusters), atol=1e-8)
+        assert not np.allclose(out.data, self._loo_car(X, groups), atol=1e-8)
 
 
 # ---------------------------------------------------------------------------
@@ -669,19 +765,19 @@ class TestBackendPreservation:
     deliberately built as numpy and must be converted to the message's
     backend on first use by the affine transformer."""
 
-    CLUSTERS = [[0, 1, 2, 3], [4, 5, 6, 7]]
+    GROUPS = [[0, 1, 2, 3], [4, 5, 6, 7]]
 
     @staticmethod
     def _affine_weight_arrays(affine):
-        """All weight arrays held by the internal affine (dense or per-cluster)."""
+        """All weight arrays held by the internal affine (dense or per-group)."""
         if affine.state.weights is not None:
             return [affine.state.weights]
-        return [sub_w for _, _, sub_w in affine.state.clusters]
+        return [sub_w for _, _, sub_w in affine.state.blocks]
 
     def test_cold_start_car_converts_and_preserves(self, backend):
         conv, typ = _backend(backend)
         X = _random_data().astype(np.float32)
-        proc = LRRTransformer(LRRSettings(channel_clusters=self.CLUSTERS, init_default=RereferenceKind.CAR))
+        proc = LRRTransformer(LRRSettings(channel_groups=self.GROUPS, init_default=RereferenceKind.CAR))
         out = proc.send(_make_axisarray(conv(X.copy())))
 
         assert isinstance(out.data, typ)
@@ -691,7 +787,7 @@ class TestBackendPreservation:
             assert isinstance(w, typ)
 
         # Values match the numpy cold-start CAR.
-        ref_proc = LRRTransformer(LRRSettings(channel_clusters=self.CLUSTERS, init_default=RereferenceKind.CAR))
+        ref_proc = LRRTransformer(LRRSettings(channel_groups=self.GROUPS, init_default=RereferenceKind.CAR))
         ref = ref_proc.send(_make_axisarray(X))
         np.testing.assert_allclose(np.asarray(out.data), ref.data, atol=1e-5)
 
@@ -699,7 +795,7 @@ class TestBackendPreservation:
         conv, typ = _backend(backend)
         X = _random_data(n_times=400).astype(np.float32)
         msg = _make_axisarray(conv(X.copy()))
-        proc = LRRTransformer(LRRSettings(channel_clusters=self.CLUSTERS))
+        proc = LRRTransformer(LRRSettings(channel_groups=self.GROUPS))
         proc.partial_fit(msg)
 
         assert isinstance(proc.state.cxx, typ)
@@ -711,7 +807,7 @@ class TestBackendPreservation:
             assert isinstance(w, typ)
 
         # Fitted output matches the numpy fit within float32 tolerance.
-        ref_proc = LRRTransformer(LRRSettings(channel_clusters=self.CLUSTERS))
+        ref_proc = LRRTransformer(LRRSettings(channel_groups=self.GROUPS))
         ref_proc.partial_fit(_make_axisarray(X))
         ref = ref_proc.send(_make_axisarray(X))
         np.testing.assert_allclose(np.asarray(out.data), ref.data, atol=1e-3)
@@ -720,12 +816,12 @@ class TestBackendPreservation:
         conv, typ = _backend(backend)
         X = _random_data(n_times=400).astype(np.float32)
 
-        fit_proc = LRRTransformer(LRRSettings(channel_clusters=self.CLUSTERS))
+        fit_proc = LRRTransformer(LRRSettings(channel_groups=self.GROUPS))
         fit_proc.partial_fit(_make_axisarray(X))
         W = np.asarray(fit_proc.state.weights)
         ref = fit_proc.send(_make_axisarray(X))
 
-        proc = LRRTransformer(LRRSettings(weights=W, channel_clusters=self.CLUSTERS))
+        proc = LRRTransformer(LRRSettings(weights=W, channel_groups=self.GROUPS))
         out = proc.send(_make_axisarray(conv(X.copy())))
         assert isinstance(out.data, typ)
         for w in self._affine_weight_arrays(proc.state.affine):
