@@ -2,8 +2,6 @@ import typing
 
 import ezmsg.core as ez
 import numpy as np
-import torch
-import torch.nn
 from ezmsg.baseproc import (
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
@@ -12,7 +10,14 @@ from ezmsg.baseproc import (
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
+from .._optional import missing_extra
 from ..model.mlp_old import MLP
+
+try:
+    import torch
+    import torch.nn
+except ImportError as exc:
+    raise missing_extra("torch", __name__) from exc
 
 
 class MLPSettings(ez.Settings):

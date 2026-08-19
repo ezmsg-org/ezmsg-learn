@@ -2,18 +2,23 @@ import typing
 
 import ezmsg.core as ez
 import numpy as np
-import torch
 from ezmsg.baseproc import BaseAdaptiveTransformer, BaseAdaptiveTransformerUnit
 from ezmsg.baseproc.util.profile import profile_subpub
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
+from .._optional import missing_extra
 from .base import ModelInitMixin
 from .torch import (
     TorchModelSettings,
     TorchModelState,
     TorchProcessorMixin,
 )
+
+try:
+    import torch
+except ImportError as exc:
+    raise missing_extra("torch", __name__) from exc
 
 
 class RNNSettings(TorchModelSettings):

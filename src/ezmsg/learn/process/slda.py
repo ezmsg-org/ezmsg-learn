@@ -19,9 +19,14 @@ from ezmsg.baseproc import (
 )
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 
+from .._optional import missing_extra
 from ..util import ClassifierMessage
+
+try:
+    from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
+except ImportError as exc:
+    raise missing_extra("sklearn", __name__) from exc
 
 
 class SLDASettings(ez.Settings):
