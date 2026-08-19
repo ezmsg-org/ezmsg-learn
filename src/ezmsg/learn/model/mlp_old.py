@@ -1,5 +1,10 @@
-import torch
-import torch.nn
+from .._optional import missing_extra
+
+try:
+    import torch
+    import torch.nn
+except ImportError as exc:
+    raise missing_extra("torch", __name__) from exc
 
 
 class MLP(torch.nn.Sequential):

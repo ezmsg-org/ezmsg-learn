@@ -5,7 +5,6 @@ from enum import Enum
 
 import ezmsg.core as ez
 import numpy as np
-import pandas as pd
 from ezmsg.baseproc import (
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
@@ -13,6 +12,13 @@ from ezmsg.baseproc import (
 )
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
+
+from .._optional import missing_extra
+
+try:
+    import pandas as pd
+except ImportError as exc:
+    raise missing_extra("sklearn", __name__) from exc
 
 
 class PredictMethod(str, Enum):

@@ -1,3 +1,13 @@
+"""Decode collection wired around a single regressor engine.
+
+.. note::
+   The regressor backends live behind optional extras. ``model_type="mlp"``
+   needs ``ezmsg-learn[torch]`` and the River/sklearn model types need
+   ``ezmsg-learn[sklearn]``; ``model_type="kalman"`` needs neither. The backend
+   modules are imported only once a backend is selected, so an install carrying
+   just one extra can still build the collection for that backend.
+"""
+
 from dataclasses import field
 
 import ezmsg.core as ez
@@ -13,17 +23,12 @@ from ezmsg.sigproc.window import Window, WindowSettings
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
-from ezmsg.learn.process.adaptive_linear_regressor import (
-    AdaptiveLinearRegressorSettings,
-    AdaptiveLinearRegressorUnit,
-)
 from ezmsg.learn.process.flatten import Flatten, FlattenSettings
 from ezmsg.learn.process.refit_kalman import (
     RefitKalmanFilterSettings,
     RefitKalmanFilterUnit,
 )
 from ezmsg.learn.process.seqseqsampler import SeqSeqSamplerSettings, SeqSeqSamplerUnit
-from ezmsg.learn.process.torch import TorchModelSettings, TorchModelUnit
 from ezmsg.learn.util import AdaptiveLinearRegressor
 
 #: Default torch model class used when ``model_type == "mlp"``.
@@ -181,14 +186,45 @@ def _build_regressor_unit(settings: SampleAdaptRegressorSettings):
     """Factory: construct the single regressor unit for ``settings.model_type``.
 
     Returns ``(unit, backend)`` where ``backend`` is ``"linear"`` (River/sklearn
-    via :class:`AdaptiveLinearRegressorUnit`), ``"torch"`` (mlp), or ``"kalman"``.
+    via ``AdaptiveLinearRegressorUnit``), ``"torch"`` (mlp), or ``"kalman"``.
     """
     backend = _model_backend(settings.model_type)
     if backend == "torch":
+        from ezmsg.learn.process.torch import TorchModelUnit
+
         return TorchModelUnit(), backend
     if backend == "kalman":
         return RefitKalmanFilterUnit(), backend
+
+    from ezmsg.learn.process.adaptive_linear_regressor import AdaptiveLinearRegressorUnit
+
     return AdaptiveLinearRegressorUnit(), backend
+
+
+def _build_regressor_settings(backend: str, settings: SampleAdaptRegressorSettings):
+    """Translate the collection settings into the selected backend's settings."""
+    if backend == "torch":
+        from ezmsg.learn.process.torch import TorchModelSettings
+
+        return TorchModelSettings(
+            model_class=settings.model_class,
+            checkpoint_path=settings.model_path,
+            model_kwargs=dict(settings.model_kwargs),
+            device=settings.device,
+        )
+    if backend == "kalman":
+        return RefitKalmanFilterSettings(
+            checkpoint_path=settings.model_path,
+            steady_state=settings.steady_state,
+        )
+
+    from ezmsg.learn.process.adaptive_linear_regressor import AdaptiveLinearRegressorSettings
+
+    return AdaptiveLinearRegressorSettings(
+        model_type=settings.model_type,
+        settings_path=settings.model_path,
+        model_kwargs=settings.model_kwargs,
+    )
 
 
 def build_sample_adapt_regressor(
@@ -227,30 +263,7 @@ def build_sample_adapt_regressor(
             ADAPTER = DecodeOutputAdapter()
 
         def configure(self) -> None:
-            if backend == "linear":
-                self.REGRESSOR.apply_settings(
-                    AdaptiveLinearRegressorSettings(
-                        model_type=self.SETTINGS.model_type,
-                        settings_path=self.SETTINGS.model_path,
-                        model_kwargs=self.SETTINGS.model_kwargs,
-                    )
-                )
-            elif backend == "torch":
-                self.REGRESSOR.apply_settings(
-                    TorchModelSettings(
-                        model_class=self.SETTINGS.model_class,
-                        checkpoint_path=self.SETTINGS.model_path,
-                        model_kwargs=dict(self.SETTINGS.model_kwargs),
-                        device=self.SETTINGS.device,
-                    )
-                )
-            else:
-                self.REGRESSOR.apply_settings(
-                    RefitKalmanFilterSettings(
-                        checkpoint_path=self.SETTINGS.model_path,
-                        steady_state=self.SETTINGS.steady_state,
-                    )
-                )
+            self.REGRESSOR.apply_settings(_build_regressor_settings(backend, self.SETTINGS))
 
             if use_window:
                 self.WINDOW.apply_settings(
