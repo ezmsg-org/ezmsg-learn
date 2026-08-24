@@ -306,20 +306,75 @@ class TestRidgeHandlesCollinearity:
         assert out.data.shape == X.shape
         assert np.all(np.isfinite(out.data))
 
+    def test_mlx_zero_ridge_handles_silent_and_collinear_channels(self):
+        """MLX must choose pinv before lazy evaluation, where inv failures can
+        no longer be caught. A completely silent target remains unchanged."""
+        mx = pytest.importorskip("mlx.core")
+        rng = np.random.default_rng(60)
+        base = rng.standard_normal((200, 1)).astype(np.float32)
+        X = np.hstack([base, base, np.zeros_like(base), rng.standard_normal((200, 1)).astype(np.float32)])
+        msg = _make_axisarray(mx.array(X))
 
-class TestNanDataSkipped:
-    def test_nan_data_skipped(self):
-        """partial_fit with NaN data is a no-op."""
+        proc = LRRTransformer(LRRSettings(ridge_lambda=0.0, check_finite=False))
+        proc.partial_fit(msg)
+        mx.eval(proc.state.cxx, proc.state.weights, proc.state.effective)
+
+        weights = np.asarray(proc.state.weights)
+        assert np.all(np.isfinite(weights))
+        np.testing.assert_array_equal(weights[:, 2], 0.0)
+
+
+class TestGroupAssembly:
+    def test_contiguous_fast_path_matches_generic_scatter(self):
+        """Changing only each group's index order forces the generic selection
+        matrix path without changing the regression represented by the groups."""
+        rng = np.random.default_rng(61)
+        X = _random_data(n_times=300, rng=rng)
+        contiguous = [[0, 1, 2, 3], [4, 5, 6, 7]]
+        permuted = [group[::-1] for group in contiguous]
+
+        proc_fast = LRRTransformer(LRRSettings(channel_groups=contiguous))
+        proc_fast.partial_fit(_make_axisarray(X))
+        proc_generic = LRRTransformer(LRRSettings(channel_groups=permuted))
+        proc_generic.partial_fit(_make_axisarray(X))
+
+        np.testing.assert_allclose(proc_fast.state.weights, proc_generic.state.weights, atol=1e-10)
+
+
+class TestMlxMaterialization:
+    def test_partial_fit_async_evaluates_covariance(self, monkeypatch):
+        """Training has no output to bound MLX's lazy covariance graph, so the
+        sufficient statistic is explicitly queued for asynchronous evaluation."""
+        mx = pytest.importorskip("mlx.core")
+        original_async_eval = mx.async_eval
+        evaluated = []
+
+        def record_async_eval(*arrays):
+            evaluated.extend(arrays)
+            return original_async_eval(*arrays)
+
+        monkeypatch.setattr(mx, "async_eval", record_async_eval)
+        X = mx.array(_random_data(n_times=100).astype(np.float32))
+        proc = LRRTransformer(LRRSettings(check_finite=False, ridge_lambda=1e-3))
+        proc.partial_fit(_make_axisarray(X))
+
+        assert evaluated == [proc.state.cxx]
+
+
+class TestNonfiniteDataSkipped:
+    @pytest.mark.parametrize("bad_value", [np.nan, np.inf])
+    def test_nonfinite_data_skipped(self, bad_value):
+        """partial_fit with non-finite data is a no-op."""
         rng = np.random.default_rng(7)
         X_good = _random_data(rng=rng)
-        X_nan = _random_data(rng=rng)
-        X_nan[0, 0] = np.nan
+        X_bad = _random_data(rng=rng)
+        X_bad[0, 0] = bad_value
 
         proc = LRRTransformer(LRRSettings())
         proc.partial_fit(_make_axisarray(X_good))
         W_before = proc.state.weights.copy()
 
-        proc.partial_fit(_make_axisarray(X_nan))
+        proc.partial_fit(_make_axisarray(X_bad))
         np.testing.assert_array_equal(proc.state.weights, W_before)
 
 
