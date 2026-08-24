@@ -8,6 +8,8 @@ Benchmarks:
     2. partial_fit (training) — numpy, varying chunk sizes
     3. _process — torch MPS (Apple Silicon GPU)
     4. partial_fit — torch MPS (Apple Silicon GPU)
+    5. _process — MLX
+    6. partial_fit — MLX, explicitly evaluated
 """
 
 import time
@@ -223,9 +225,6 @@ def bench_process_mlx() -> None:
     proc = LRRTransformer(LRRSettings(channel_groups=GROUPS))
     proc.partial_fit(_make_msg(fit_data))
 
-    def sync():
-        mx.eval()
-
     for chunk in CHUNK_SIZES:
         data_mlx = mx.random.normal(shape=(chunk, N_CH))
         msg = _make_msg(data_mlx)
@@ -252,48 +251,29 @@ def bench_partial_fit_mlx() -> None:
 
     _print_header("partial_fit (training) — MLX")
     print(f"  {N_CH} channels, {N_GROUPS}x{GROUP_SIZE} groups, {WARMUP_ITERS} warmup, {BENCH_ITERS} iters")
-    # MLX linalg.inv doesn't support GPU yet; run inv on CPU stream
-    print("  NOTE: linalg.inv runs on mx.cpu stream (GPU not supported)")
+    print("  NOTE: CPU-stream linalg; check_finite=False; cxx/weights/effective explicitly evaluated")
     print()
 
-    import mlx.core as mx
+    for ridge_lambda in (0.0, 1e-3):
+        solver = "pinv" if ridge_lambda == 0 else "inv"
+        print(f"  ridge_lambda={ridge_lambda:g} ({solver})")
+        proc = LRRTransformer(LRRSettings(channel_groups=GROUPS, check_finite=False, ridge_lambda=ridge_lambda))
 
-    _ = np.random.default_rng(1)
-    proc = LRRTransformer(LRRSettings(channel_groups=GROUPS))
-
-    # Monkey-patch _solve_weights to use mx.cpu stream for inv
-    original_solve = proc._solve_weights
-
-    def _solve_weights_cpu_inv(cxx):
-        from array_api_compat import get_namespace
-
-        xp = get_namespace(cxx)
-        # If this is MLX, we need to override linalg.inv
-        if xp.__name__ == "mlx.core":
-            orig_inv = mx.linalg.inv
-            mx.linalg.inv = lambda a: orig_inv(a, stream=mx.cpu)
-            try:
-                return original_solve(cxx)
-            finally:
-                mx.linalg.inv = orig_inv
-        return original_solve(cxx)
-
-    proc._solve_weights = _solve_weights_cpu_inv
-
-    for chunk in CHUNK_SIZES:
-        data_mlx = mx.random.normal(shape=(chunk, N_CH))
-        msg = _make_msg(data_mlx)
-        # Prime
-        proc.partial_fit(msg)
-
-        def run():
+        for chunk in CHUNK_SIZES:
+            data_mlx = mx.random.normal(shape=(chunk, N_CH))
+            msg = _make_msg(data_mlx)
+            # Prime
             proc.partial_fit(msg)
-            mx.eval()
 
-        times = _bench_loop(run, WARMUP_ITERS, BENCH_ITERS)
-        median_us = np.median(times) * 1e6
-        throughput = chunk / np.median(times)
-        _print_row(chunk, median_us, throughput / 1e3)
+            def run():
+                proc.partial_fit(msg)
+                mx.eval(proc.state.cxx, proc.state.weights, proc.state.effective)
+
+            times = _bench_loop(run, WARMUP_ITERS, BENCH_ITERS)
+            median_us = np.median(times) * 1e6
+            throughput = chunk / np.median(times)
+            _print_row(chunk, median_us, throughput / 1e3)
+        print()
 
 
 # ---------------------------------------------------------------------------

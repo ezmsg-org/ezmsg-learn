@@ -28,8 +28,9 @@ sufficient statistic is the channel covariance ``C = X^T X``.  When
 :meth:`~SelfSupervisedRegressionTransformer.partial_fit` calls.
 
 **Solving.**  Within each group the weight matrix *W* is obtained from
-the inverse of the (ridge-regularised) group covariance
-``C_inv = (C_group + lambda * I)^{-1}`` using the block-inverse identity::
+the inverse of the ridge-regularised group covariance, or its pseudoinverse
+when an unregularised MLX covariance may be singular, using the block-inverse
+identity::
 
     W[:, c] = -C_inv[:, c] / C_inv[c, c],    diag(W) = 0
 
@@ -115,6 +116,11 @@ class SelfSupervisedRegressionSettings(ez.Settings):
     incremental: bool = True
     """When ``True``, accumulate ``X^T X`` across :meth:`partial_fit` calls.
     When ``False``, each call replaces the previous statistics."""
+
+    check_finite: bool = True
+    """Skip batches containing non-finite values. Disable for trusted finite
+    streams to avoid the device-to-host synchronization required to make this
+    decision on lazy backends such as MLX."""
 
 
 @processor_state
@@ -230,7 +236,7 @@ class SelfSupervisedRegressionTransformer(
     # -- weight solving ------------------------------------------------------
 
     def _solve_weights(self, cxx):
-        """Solve all per-channel ridge regressions via matrix inverse.
+        """Solve all per-channel ridge regressions via an inverse or pseudoinverse.
 
         Uses the block-inverse identity: for target channel *c* with
         references *r*, ``w_c = -C_inv[r, c] / C_inv[c, c]`` where
@@ -253,15 +259,24 @@ class SelfSupervisedRegressionTransformer(
         if groups is None:
             groups = [np.arange(n, dtype=np.intp)]
 
-        W = xp_create(xp.zeros, (n, n), dtype=cxx.dtype, device=dev)
-        eye_n = xp_create(xp.eye, n, dtype=cxx.dtype, device=dev)
+        # When every group is already consecutive, collect row blocks and build
+        # the full matrix once. Otherwise retain the generic selection-matrix
+        # scatter for arbitrary index orderings.
+        normalized_groups = [np.asarray(group, dtype=np.intp).reshape(-1) for group in groups]
+        contiguous_assembly = all(
+            idx.size == 0 or np.array_equal(idx, np.arange(idx[0], idx[0] + idx.size, dtype=np.intp))
+            for idx in normalized_groups
+        )
+        W = None if contiguous_assembly else xp_create(xp.zeros, (n, n), dtype=cxx.dtype, device=dev)
+        group_blocks = []
+        eye_n = None
 
         # MLX linalg ops are CPU-only; with unified memory the explicit CPU
         # stream is a scheduling hint, not a host copy, and results stay mlx.
-        inv_kwargs = {"stream": xp.cpu} if xp.__name__ == "mlx.core" else {}
+        is_mlx = xp.__name__ == "mlx.core"
+        inv_kwargs = {"stream": xp.cpu} if is_mlx else {}
 
-        for group in groups:
-            idx = np.asarray(group, dtype=np.intp).reshape(-1)
+        for idx in normalized_groups:
             k = idx.size
             if k < MIN_REREF_GROUP_SIZE:
                 # Too few channels to rereference against -- leave these channels
@@ -279,30 +294,64 @@ class SelfSupervisedRegressionTransformer(
             if self.settings.ridge_lambda > 0:
                 sub = sub + self.settings.ridge_lambda * eye_k
 
-            # One inverse per group
-            try:
-                sub_inv = xp.linalg.inv(sub, **inv_kwargs)
-            except Exception:
-                sub_inv = xp.linalg.pinv(sub, **inv_kwargs)
+            # One inverse per group. MLX is lazy, so an exception raised while
+            # evaluating inv() cannot be caught here. With positive ridge the
+            # covariance is nonsingular; without it, use pinv() directly.
+            if is_mlx:
+                solve = xp.linalg.inv if self.settings.ridge_lambda > 0 else xp.linalg.pinv
+                sub_inv = solve(sub, **inv_kwargs)
+            else:
+                try:
+                    sub_inv = xp.linalg.inv(sub)
+                except Exception:
+                    sub_inv = xp.linalg.pinv(sub)
 
-            # Diagonal via element-wise product with identity
-            diag_vals = xp.sum(sub_inv * eye_k, axis=0)
+            diag_vals = xp.diag(sub_inv)
 
             # w_c = -C_inv[:, c] / C_inv[c, c], vectorised over all c
-            W_group = -(sub_inv / xp.reshape(diag_vals, (1, k)))
+            # A completely silent channel has a zero pseudoinverse diagonal;
+            # leave its prediction weights at zero instead of producing NaNs.
+            valid_diag = diag_vals != 0
+            safe_diag = xp.where(valid_diag, diag_vals, xp.ones_like(diag_vals))
+            W_group = -(sub_inv / xp.reshape(safe_diag, (1, k)))
+            W_group = W_group * xp.reshape(valid_diag, (1, k))
 
             # Zero the diagonal
             W_group = W_group * (1.0 - eye_k)
 
-            # Scatter into full W. The no-op shortcut needs the group to be every
-            # channel *in order* -- a callable spec may return all n permuted, and
-            # then the sub-block still has to be scattered back.
-            if k == n and np.array_equal(idx, np.arange(n, dtype=np.intp)):
+            # Collect consecutive blocks for one-shot assembly; arbitrary index
+            # orders still need the generic scatter.
+            if contiguous_assembly:
+                start, stop = int(idx[0]), int(idx[-1]) + 1
+                group_blocks.append((start, stop, W_group))
+            elif k == n and np.array_equal(idx, np.arange(n, dtype=np.intp)):
                 W = W + W_group
             else:
                 # Selection matrix: columns of eye(n) at group indices
+                if eye_n is None:
+                    eye_n = xp_create(xp.eye, n, dtype=cxx.dtype, device=dev)
                 S = xp.take(eye_n, idx_xp, axis=1)  # (n, k)
                 W = W + xp.matmul(S, xp.matmul(W_group, xp.permute_dims(S, (1, 0))))
+
+        if contiguous_assembly:
+            row_parts = []
+            cursor = 0
+            for start, stop, W_group in sorted(group_blocks, key=lambda block: block[0]):
+                if start > cursor:
+                    row_parts.append(xp_create(xp.zeros, (start - cursor, n), dtype=cxx.dtype, device=dev))
+
+                col_parts = []
+                if start:
+                    col_parts.append(xp_create(xp.zeros, (stop - start, start), dtype=cxx.dtype, device=dev))
+                col_parts.append(W_group)
+                if stop < n:
+                    col_parts.append(xp_create(xp.zeros, (stop - start, n - stop), dtype=cxx.dtype, device=dev))
+                row_parts.append(xp.concat(col_parts, axis=1))
+                cursor = stop
+
+            if cursor < n:
+                row_parts.append(xp_create(xp.zeros, (n - cursor, n), dtype=cxx.dtype, device=dev))
+            W = xp.concat(row_parts, axis=0) if len(row_parts) > 1 else row_parts[0]
 
         return W
 
@@ -311,7 +360,9 @@ class SelfSupervisedRegressionTransformer(
     def partial_fit(self, message: AxisArray) -> None:  # type: ignore[override]
         xp = get_namespace(message.data)
 
-        if xp.any(xp.isnan(message.data)):
+        # This branch necessarily synchronizes lazy device backends. Trusted
+        # real-time streams can disable it with check_finite=False.
+        if self.settings.check_finite and not xp.all(xp.isfinite(message.data)):
             return
 
         # Hash check / state reset
@@ -345,6 +396,12 @@ class SelfSupervisedRegressionTransformer(
         else:
             self._state.cxx = cxx_new
         self._state.n_samples += int(X.shape[0])
+
+        # partial_fit has no output to materialize this sufficient statistic.
+        # Bound MLX's lazy dependency chain without synchronizing the caller;
+        # intermediate weight solves remain lazy and can be superseded.
+        if xp.__name__ == "mlx.core":
+            xp.async_eval(self._state.cxx)
 
         self._state.weights = self._solve_weights(self._state.cxx)
         self._on_weights_updated()
