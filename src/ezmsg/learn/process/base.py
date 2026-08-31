@@ -4,7 +4,13 @@ import typing
 from pathlib import Path
 
 import ezmsg.core as ez
-import torch
+
+from .._optional import missing_extra
+
+try:
+    import torch
+except ImportError as exc:
+    raise missing_extra("torch", __name__) from exc
 
 
 class ModelInitMixin:

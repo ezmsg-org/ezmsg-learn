@@ -8,9 +8,14 @@ from ezmsg.baseproc import (
     processor_state,
 )
 from ezmsg.util.messages.axisarray import AxisArray, replace
-from sklearn.linear_model._base import LinearModel
 
+from .._optional import missing_extra
 from ..util import RegressorType, StaticLinearRegressor, get_regressor
+
+try:
+    from sklearn.linear_model._base import LinearModel
+except ImportError as exc:
+    raise missing_extra("sklearn", __name__) from exc
 
 
 class LinearRegressorSettings(ez.Settings):

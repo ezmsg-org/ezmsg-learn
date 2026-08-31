@@ -36,12 +36,17 @@ jobs:
           python-version: "3.12"
 
       - name: Install the project
+        # The docs group carries `ezmsg-learn[all]`: autodoc imports every
+        # documented module, including the ones behind the torch/sklearn extras.
         run: uv sync --only-group docs
 
       - name: Build documentation
+        # --no-sync so the build uses exactly the environment installed above.
+        # Without it, `uv run` re-syncs to the default groups, which quietly
+        # decides the docs dependencies for us.
         run: |
           cd docs
-          uv run make html
+          uv run --no-sync make html
 
       - name: Add .nojekyll file
         run: touch docs/build/html/.nojekyll

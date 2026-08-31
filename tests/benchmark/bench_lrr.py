@@ -8,6 +8,8 @@ Benchmarks:
     2. partial_fit (training) — numpy, varying chunk sizes
     3. _process — torch MPS (Apple Silicon GPU)
     4. partial_fit — torch MPS (Apple Silicon GPU)
+    5. _process — MLX
+    6. partial_fit — MLX, explicitly evaluated
 """
 
 import time
@@ -22,14 +24,14 @@ from ezmsg.learn.process.ssr import LRRSettings, LRRTransformer
 # ---------------------------------------------------------------------------
 
 N_CH = 512
-N_CLUSTERS = 8
-CLUSTER_SIZE = N_CH // N_CLUSTERS  # 64
+N_GROUPS = 8
+GROUP_SIZE = N_CH // N_GROUPS  # 64
 FS = 30_000.0
 CHUNK_SIZES = [20, 50, 100, 150, 200, 300]
 WARMUP_ITERS = 20
 BENCH_ITERS = 200
 
-CLUSTERS = [list(range(i * CLUSTER_SIZE, (i + 1) * CLUSTER_SIZE)) for i in range(N_CLUSTERS)]
+GROUPS = [list(range(i * GROUP_SIZE, (i + 1) * GROUP_SIZE)) for i in range(N_GROUPS)]
 
 
 # ---------------------------------------------------------------------------
@@ -89,14 +91,14 @@ def _bench_loop_sync(fn, sync_fn, n_warmup: int, n_iters: int) -> list[float]:
 
 def bench_process_numpy() -> None:
     _print_header("_process (inference) — NumPy")
-    print(f"  {N_CH} channels, {N_CLUSTERS}x{CLUSTER_SIZE} clusters, {WARMUP_ITERS} warmup, {BENCH_ITERS} iters")
+    print(f"  {N_CH} channels, {N_GROUPS}x{GROUP_SIZE} groups, {WARMUP_ITERS} warmup, {BENCH_ITERS} iters")
     print()
 
     rng = np.random.default_rng(0)
 
     # Fit via partial_fit so the message hash is primed for send()
     fit_data = rng.standard_normal((2000, N_CH))
-    proc = LRRTransformer(LRRSettings(channel_clusters=CLUSTERS, min_cluster_size=1))
+    proc = LRRTransformer(LRRSettings(channel_groups=GROUPS))
     proc.partial_fit(_make_msg(fit_data))
 
     for chunk in CHUNK_SIZES:
@@ -113,11 +115,11 @@ def bench_process_numpy() -> None:
 
 def bench_partial_fit_numpy() -> None:
     _print_header("partial_fit (training) — NumPy")
-    print(f"  {N_CH} channels, {N_CLUSTERS}x{CLUSTER_SIZE} clusters, {WARMUP_ITERS} warmup, {BENCH_ITERS} iters")
+    print(f"  {N_CH} channels, {N_GROUPS}x{GROUP_SIZE} groups, {WARMUP_ITERS} warmup, {BENCH_ITERS} iters")
     print()
 
     rng = np.random.default_rng(1)
-    proc = LRRTransformer(LRRSettings(channel_clusters=CLUSTERS, min_cluster_size=1))
+    proc = LRRTransformer(LRRSettings(channel_groups=GROUPS))
 
     for chunk in CHUNK_SIZES:
         data = rng.standard_normal((chunk, N_CH))
@@ -144,7 +146,7 @@ def bench_process_mps() -> None:
         return
 
     _print_header("_process (inference) — Torch MPS")
-    print(f"  {N_CH} channels, {N_CLUSTERS}x{CLUSTER_SIZE} clusters, {WARMUP_ITERS} warmup, {BENCH_ITERS} iters")
+    print(f"  {N_CH} channels, {N_GROUPS}x{GROUP_SIZE} groups, {WARMUP_ITERS} warmup, {BENCH_ITERS} iters")
     print()
 
     rng = np.random.default_rng(0)
@@ -152,7 +154,7 @@ def bench_process_mps() -> None:
 
     # Fit on CPU (numpy), then send MPS data to trigger device conversion
     fit_data = rng.standard_normal((2000, N_CH))
-    proc = LRRTransformer(LRRSettings(channel_clusters=CLUSTERS, min_cluster_size=1))
+    proc = LRRTransformer(LRRSettings(channel_groups=GROUPS))
     proc.partial_fit(_make_msg(fit_data))
 
     def sync():
@@ -178,12 +180,12 @@ def bench_partial_fit_mps() -> None:
         return
 
     _print_header("partial_fit (training) — Torch MPS")
-    print(f"  {N_CH} channels, {N_CLUSTERS}x{CLUSTER_SIZE} clusters, {WARMUP_ITERS} warmup, {BENCH_ITERS} iters")
+    print(f"  {N_CH} channels, {N_GROUPS}x{GROUP_SIZE} groups, {WARMUP_ITERS} warmup, {BENCH_ITERS} iters")
     print()
 
     _ = np.random.default_rng(1)
     device = torch.device("mps")
-    proc = LRRTransformer(LRRSettings(channel_clusters=CLUSTERS, min_cluster_size=1))
+    proc = LRRTransformer(LRRSettings(channel_groups=GROUPS))
 
     def sync():
         torch.mps.synchronize()
@@ -213,18 +215,15 @@ def bench_process_mlx() -> None:
         return
 
     _print_header("_process (inference) — MLX")
-    print(f"  {N_CH} channels, {N_CLUSTERS}x{CLUSTER_SIZE} clusters, {WARMUP_ITERS} warmup, {BENCH_ITERS} iters")
+    print(f"  {N_CH} channels, {N_GROUPS}x{GROUP_SIZE} groups, {WARMUP_ITERS} warmup, {BENCH_ITERS} iters")
     print()
 
     rng = np.random.default_rng(0)
 
     # Fit on CPU (numpy), then send MLX data
     fit_data = rng.standard_normal((2000, N_CH))
-    proc = LRRTransformer(LRRSettings(channel_clusters=CLUSTERS, min_cluster_size=1))
+    proc = LRRTransformer(LRRSettings(channel_groups=GROUPS))
     proc.partial_fit(_make_msg(fit_data))
-
-    def sync():
-        mx.eval()
 
     for chunk in CHUNK_SIZES:
         data_mlx = mx.random.normal(shape=(chunk, N_CH))
@@ -251,49 +250,30 @@ def bench_partial_fit_mlx() -> None:
         return
 
     _print_header("partial_fit (training) — MLX")
-    print(f"  {N_CH} channels, {N_CLUSTERS}x{CLUSTER_SIZE} clusters, {WARMUP_ITERS} warmup, {BENCH_ITERS} iters")
-    # MLX linalg.inv doesn't support GPU yet; run inv on CPU stream
-    print("  NOTE: linalg.inv runs on mx.cpu stream (GPU not supported)")
+    print(f"  {N_CH} channels, {N_GROUPS}x{GROUP_SIZE} groups, {WARMUP_ITERS} warmup, {BENCH_ITERS} iters")
+    print("  NOTE: CPU-stream linalg; check_finite=False; cxx/weights/effective explicitly evaluated")
     print()
 
-    import mlx.core as mx
+    for ridge_lambda in (0.0, 1e-3):
+        solver = "pinv" if ridge_lambda == 0 else "inv"
+        print(f"  ridge_lambda={ridge_lambda:g} ({solver})")
+        proc = LRRTransformer(LRRSettings(channel_groups=GROUPS, check_finite=False, ridge_lambda=ridge_lambda))
 
-    _ = np.random.default_rng(1)
-    proc = LRRTransformer(LRRSettings(channel_clusters=CLUSTERS, min_cluster_size=1))
-
-    # Monkey-patch _solve_weights to use mx.cpu stream for inv
-    original_solve = proc._solve_weights
-
-    def _solve_weights_cpu_inv(cxx):
-        from array_api_compat import get_namespace
-
-        xp = get_namespace(cxx)
-        # If this is MLX, we need to override linalg.inv
-        if xp.__name__ == "mlx.core":
-            orig_inv = mx.linalg.inv
-            mx.linalg.inv = lambda a: orig_inv(a, stream=mx.cpu)
-            try:
-                return original_solve(cxx)
-            finally:
-                mx.linalg.inv = orig_inv
-        return original_solve(cxx)
-
-    proc._solve_weights = _solve_weights_cpu_inv
-
-    for chunk in CHUNK_SIZES:
-        data_mlx = mx.random.normal(shape=(chunk, N_CH))
-        msg = _make_msg(data_mlx)
-        # Prime
-        proc.partial_fit(msg)
-
-        def run():
+        for chunk in CHUNK_SIZES:
+            data_mlx = mx.random.normal(shape=(chunk, N_CH))
+            msg = _make_msg(data_mlx)
+            # Prime
             proc.partial_fit(msg)
-            mx.eval()
 
-        times = _bench_loop(run, WARMUP_ITERS, BENCH_ITERS)
-        median_us = np.median(times) * 1e6
-        throughput = chunk / np.median(times)
-        _print_row(chunk, median_us, throughput / 1e3)
+            def run():
+                proc.partial_fit(msg)
+                mx.eval(proc.state.cxx, proc.state.weights, proc.state.effective)
+
+            times = _bench_loop(run, WARMUP_ITERS, BENCH_ITERS)
+            median_us = np.median(times) * 1e6
+            throughput = chunk / np.median(times)
+            _print_row(chunk, median_us, throughput / 1e3)
+        print()
 
 
 # ---------------------------------------------------------------------------
@@ -301,7 +281,7 @@ def bench_partial_fit_mlx() -> None:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    print(f"LRRTransformer benchmark: {N_CH} channels, {N_CLUSTERS} clusters of {CLUSTER_SIZE}, fs={FS / 1e3:.0f} kHz")
+    print(f"LRRTransformer benchmark: {N_CH} channels, {N_GROUPS} groups of {GROUP_SIZE}, fs={FS / 1e3:.0f} kHz")
 
     bench_process_numpy()
     bench_partial_fit_numpy()

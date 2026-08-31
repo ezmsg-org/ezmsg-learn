@@ -13,10 +13,6 @@ from dataclasses import field
 
 import ezmsg.core as ez
 import numpy as np
-import pandas as pd
-import river.linear_model
-import river.optim
-import sklearn.base
 from array_api_compat import get_namespace, is_numpy_array
 from ezmsg.baseproc import (
     BaseAdaptiveTransformer,
@@ -25,7 +21,16 @@ from ezmsg.baseproc import (
 )
 from ezmsg.util.messages.axisarray import AxisArray, replace
 
+from .._optional import missing_extra
 from ..util import AdaptiveLinearRegressor, RegressorType, get_regressor
+
+try:
+    import pandas as pd
+    import river.linear_model
+    import river.optim
+    import sklearn.base
+except ImportError as exc:
+    raise missing_extra("sklearn", __name__) from exc
 
 
 class AdaptiveLinearRegressorSettings(ez.Settings):

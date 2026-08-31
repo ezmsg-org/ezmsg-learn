@@ -34,8 +34,11 @@ jobs:
         run: uv sync
 
       - name: Lint
+        # uv run, not uv tool run: the latter resolves ruff independently and
+        # would ignore the version pinned in the lint dependency-group, so a new
+        # ruff release could turn CI red with no change to this repo.
         run:
-          uv tool run ruff check --output-format=github src
+          uv run ruff check --output-format=github src
 
       - name: Run unit tests
         run: uv run pytest tests/unit tests/dim_reduce -v
@@ -44,3 +47,34 @@ jobs:
         run: uv run pytest tests/integration -v --tb=long
         env:
           PYTHONFAULTHANDLER: 1
+
+  # The backends are extras; this job proves a base install stays free of them
+  # and that the modules behind an extra say which extra they need.
+  minimal-install:
+    name: Minimal install (no extras)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install the project without extras
+        # Deliberately not `uv sync`: the dev dependency-groups pull in [all].
+        run: |
+          uv venv
+          uv pip install . pytest
+
+      - name: Assert no backend is installed
+        run: |
+          .venv/bin/python -c "
+          import importlib.util
+          present = [m for m in ('torch', 'sklearn', 'river', 'pandas') if importlib.util.find_spec(m)]
+          assert not present, f'base install pulled in {present}'
+          "
+
+      - name: Run the optional-dependency guards
+        run: .venv/bin/python -m pytest tests/unit/test_optional_deps.py -v

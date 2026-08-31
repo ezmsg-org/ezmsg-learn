@@ -19,7 +19,13 @@ from ezmsg.baseproc import (
     processor_state,
 )
 from ezmsg.util.messages.axisarray import AxisArray, replace
-from sklearn.decomposition import IncrementalPCA, MiniBatchNMF
+
+from .._optional import missing_extra
+
+try:
+    from sklearn.decomposition import IncrementalPCA, MiniBatchNMF
+except ImportError as exc:
+    raise missing_extra("sklearn", __name__) from exc
 
 
 class AdaptiveDecompSettings(ez.Settings):
