@@ -21,6 +21,7 @@ from ezmsg.baseproc import (
 from ezmsg.util.messages.axisarray import AxisArray, replace
 
 from .._optional import missing_extra
+from ..util import with_fingerprint
 
 try:
     from sklearn.decomposition import IncrementalPCA, MiniBatchNMF
@@ -97,16 +98,6 @@ class AdaptiveDecompTransformer(
             ]
         self._state.axis_groups = iter_axis, targ_axes, off_targ_axes
 
-    def _hash_message(self, message: AxisArray) -> int:
-        iter_axis = (
-            self.settings.axis[1:]
-            if self.settings.axis.startswith("!")
-            else ("win" if "win" in message.dims else "time")
-        )
-        ax_idx = message.get_axis_idx(iter_axis)
-        sample_shape = message.data.shape[:ax_idx] + message.data.shape[ax_idx + 1 :]
-        return hash((sample_shape, message.key))
-
     def _reset_state(self, message: AxisArray) -> None:
         """Reset state"""
         self._calculate_axis_groups(message)
@@ -123,10 +114,12 @@ class AdaptiveDecompTransformer(
         else:
             targ_ax_name = "components"
         out_dims += [targ_ax_name]
-        out_axes[targ_ax_name] = AxisArray.CoordinateAxis(
-            data=np.arange(self.settings.n_components).astype(str),
-            dims=[targ_ax_name],
-            unit="component",
+        out_axes[targ_ax_name] = with_fingerprint(
+            AxisArray.CoordinateAxis(
+                data=np.arange(self.settings.n_components).astype(str),
+                dims=[targ_ax_name],
+                unit="component",
+            )
         )
         out_shape = [message.data.shape[message.get_axis_idx(_)] for _ in off_targ_axes]
         out_shape = (0,) + tuple(out_shape) + (self.settings.n_components,)

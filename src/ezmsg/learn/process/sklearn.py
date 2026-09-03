@@ -14,6 +14,7 @@ from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
 from .._optional import missing_extra
+from ..util import with_fingerprint
 
 try:
     import pandas as pd
@@ -235,7 +236,7 @@ class SklearnModelProcessor(BaseAdaptiveTransformer[SklearnModelSettings, AxisAr
                 chan_labels = np.asarray(self._state.model.classes_)
             else:
                 chan_labels = np.arange(output_shape[1])
-            self._state.chan_ax = AxisArray.CoordinateAxis(data=chan_labels, dims=["ch"])
+            self._state.chan_ax = with_fingerprint(AxisArray.CoordinateAxis(data=chan_labels, dims=["ch"]))
 
         return replace(
             message,

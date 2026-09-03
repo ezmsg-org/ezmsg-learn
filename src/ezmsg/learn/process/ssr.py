@@ -63,7 +63,6 @@ from ezmsg.sigproc.util.array import array_device, xp_create
 from ezmsg.sigproc.util.channels import (
     ChannelGroupSpec,
     group_spec_fields,
-    group_spec_fingerprint,
     resolve_channel_groups,
     validate_channel_groups,
 )
@@ -148,18 +147,6 @@ class SelfSupervisedRegressionTransformer(
     """
 
     # -- message hash / state management ------------------------------------
-
-    def _hash_message(self, message: AxisArray) -> int:
-        axis = self.settings.axis or message.dims[-1]
-        axis_idx = message.get_axis_idx(axis)
-        # group_spec_fingerprint contributes an O(1) "can this spec resolve?"
-        # boolean rather than the field's bytes, so the per-message hash does not
-        # grow with channel count. See its docstring for what that deliberately
-        # does not detect. Mirrors the ezmsg-sigproc transformers' hash.
-        return hash(
-            (message.key, message.data.shape[axis_idx])
-            + group_spec_fingerprint(message, axis, self.settings.channel_groups)
-        )
 
     def _reset_state(self, message: AxisArray) -> None:
         axis = self.settings.axis or message.dims[-1]

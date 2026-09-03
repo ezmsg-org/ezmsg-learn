@@ -15,6 +15,7 @@ from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
 from .._optional import missing_extra
+from ..util import with_fingerprint
 from .base import ModelInitMixin
 
 try:
@@ -243,9 +244,11 @@ class TorchProcessorMixin:
 
         output_sizes = self._infer_output_sizes(self._state.model, n_input)
         self._state.chan_ax = {
-            head: AxisArray.CoordinateAxis(
-                data=np.array([f"{head}_ch{_}" for _ in range(size)]),
-                dims=["ch"],
+            head: with_fingerprint(
+                AxisArray.CoordinateAxis(
+                    data=np.array([f"{head}_ch{_}" for _ in range(size)]),
+                    dims=["ch"],
+                )
             )
             for head, size in output_sizes.items()
         }

@@ -31,6 +31,8 @@ from ezmsg.learn.process.refit_kalman import (
 from ezmsg.learn.process.seqseqsampler import SeqSeqSamplerSettings, SeqSeqSamplerUnit
 from ezmsg.learn.util import AdaptiveLinearRegressor
 
+from ..util import with_fingerprint
+
 #: Default torch model class used when ``model_type == "mlp"``.
 DEFAULT_TORCH_MODEL_CLASS = "ezmsg.learn.model.mlp.MLP"
 
@@ -87,7 +89,9 @@ class DecodeOutputAdapterProcessor(
 
     def _reset_state(self, message: AxisArray) -> None:
         if self.settings.output_labels is not None:
-            self.state.ch_axis = AxisArray.CoordinateAxis(data=np.asarray(self.settings.output_labels), dims=["ch"])
+            self.state.ch_axis = with_fingerprint(
+                AxisArray.CoordinateAxis(data=np.asarray(self.settings.output_labels), dims=["ch"])
+            )
 
     def _process(self, message: AxisArray) -> AxisArray | None:
         data = np.asarray(message.data, dtype=float)
@@ -100,7 +104,9 @@ class DecodeOutputAdapterProcessor(
             ch_axis = self.state.ch_axis
         else:
             data = data.reshape((data.shape[0], -1)) if data.ndim > 1 else data.reshape((1, -1))
-            ch_axis = AxisArray.CoordinateAxis(data=np.asarray([f"ch{i}" for i in range(data.shape[-1])]), dims=["ch"])
+            ch_axis = with_fingerprint(
+                AxisArray.CoordinateAxis(data=np.asarray([f"ch{i}" for i in range(data.shape[-1])]), dims=["ch"])
+            )
 
         # The decoder engines carry a ``time`` axis through (kalman keeps the
         # input's; the torch path inherits the windower's renamed ``win``->``time``

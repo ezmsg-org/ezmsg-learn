@@ -12,6 +12,7 @@ from ezmsg.util.messages.util import replace
 
 from .._optional import missing_extra
 from ..model.mlp_old import MLP
+from ..util import with_fingerprint
 
 try:
     import torch
@@ -65,12 +66,6 @@ class MLPState:
 
 
 class MLPProcessor(BaseAdaptiveTransformer[MLPSettings, AxisArray, AxisArray, MLPState]):
-    def _hash_message(self, message: AxisArray) -> int:
-        hash_items = (message.key,)
-        if "ch" in message.dims:
-            hash_items += (message.data.shape[message.get_axis_idx("ch")],)
-        return hash(hash_items)
-
     def _reset_state(self, message: AxisArray) -> None:
         # Create the model
         self._state.model = MLP(
@@ -118,8 +113,8 @@ class MLPProcessor(BaseAdaptiveTransformer[MLPSettings, AxisArray, AxisArray, ML
 
         # Create the output channel axis for reuse in each output.
         n_output_channels = self.settings.hidden_channels[-1]
-        self._state.chan_ax = AxisArray.CoordinateAxis(
-            data=np.array([f"ch{_}" for _ in range(n_output_channels)]), dims=["ch"]
+        self._state.chan_ax = with_fingerprint(
+            AxisArray.CoordinateAxis(data=np.array([f"ch{_}" for _ in range(n_output_channels)]), dims=["ch"])
         )
 
     def save_checkpoint(self, path: str) -> None:

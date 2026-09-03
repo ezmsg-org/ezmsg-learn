@@ -21,7 +21,7 @@ from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
 from .._optional import missing_extra
-from ..util import ClassifierMessage
+from ..util import ClassifierMessage, with_fingerprint
 
 try:
     from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
@@ -80,7 +80,7 @@ class SLDATransformer(BaseStatefulTransformer[SLDASettings, AxisArray, Classifie
             dims=[self.settings.axis, "classes"],
             axes={
                 self.settings.axis: message.axes[self.settings.axis],
-                "classes": AxisArray.CoordinateAxis(data=np.array(out_labels), dims=["classes"]),
+                "classes": with_fingerprint(AxisArray.CoordinateAxis(data=np.array(out_labels), dims=["classes"])),
             },
             labels=out_labels,
             key=message.key,
