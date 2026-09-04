@@ -228,12 +228,17 @@ class TestGroupByField:
 
         np.testing.assert_array_equal(proc_field.state.weights, proc_block.state.weights)
 
-    def test_bank_field_value_change_is_not_detected(self):
-        """Intentional concession (mirrors the ezmsg-sigproc CAR fix): a live bank
-        remap at fixed key + channel count is NOT re-derived. ``_hash_message``
-        folds only an O(1) "bank field present" boolean, not the field's bytes, so
-        the per-message hash does not scale with channel count. A genuine remap on
-        real hardware arrives with a new key or channel count (escape hatch below)."""
+    def test_bank_field_value_change_is_detected(self):
+        """A live bank remap at fixed key and channel count is now re-derived.
+
+        This asserted the opposite until ezmsg-baseproc 1.12.0. The old hash
+        folded an O(1) "bank field present" boolean rather than the field's
+        bytes, so a remap that kept the key and the channel count looked
+        identical and the cached groups were reused -- silently rereferencing
+        each channel against the wrong bank. The concession existed because
+        digesting the field per message was thought to scale with channel
+        count; ``CoordinateAxis.fingerprint`` removes that cost by computing
+        the digest once per axis object rather than once per consumer."""
         rng = np.random.default_rng(11)
         X = _random_data(n_ch=4, rng=rng)
         proc = LRRTransformer(LRRSettings(axis="ch", channel_groups="bank"))
@@ -243,14 +248,13 @@ class TestGroupByField:
         assert [g.tolist() for g in proc.state.resolved_groups] == [[0, 1], [2, 3]]
         np.testing.assert_array_equal(proc.state.weights[np.ix_([0, 1], [2, 3])], 0.0)
 
-        # Same key + channel count, different banks -> hash unchanged, so the
-        # cached groups are (deliberately) NOT re-derived.
+        # Same key, same channel count, different banks -> re-derived.
         proc.partial_fit(_banked_axisarray(X, ["A", "B", "A", "B"], key="x"))
-        assert [g.tolist() for g in proc.state.resolved_groups] == [[0, 1], [2, 3]]
-
-        # Escape hatch: a new key (as a real remap would carry) forces re-derivation.
-        proc.partial_fit(_banked_axisarray(X, ["A", "B", "A", "B"], key="y"))
         assert [g.tolist() for g in proc.state.resolved_groups] == [[0, 2], [1, 3]]
+
+        # A new key still forces re-derivation, as it always did.
+        proc.partial_fit(_banked_axisarray(X, ["B", "B", "A", "A"], key="y"))
+        assert [g.tolist() for g in proc.state.resolved_groups] == [[0, 1], [2, 3]]
 
 
 class TestIncrementalAccumulates:

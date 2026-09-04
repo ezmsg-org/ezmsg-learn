@@ -35,6 +35,8 @@ from ezmsg.sigproc.flatten import (
 )
 from ezmsg.util.messages.axisarray import AxisArray, CoordinateAxis, replace
 
+from ..util import with_fingerprint
+
 
 class FlattenSettings(ez.Settings):
     """Settings for the learn-side :obj:`Flatten`.
@@ -104,7 +106,7 @@ def _build_lag_axis(sample_dim: str, sample_size: int) -> CoordinateAxis:
     data = np.empty(sample_size, dtype=dtype)
     data["lag"] = lags
     data["label"] = label_strs
-    return CoordinateAxis(data=data, dims=[sample_dim])
+    return with_fingerprint(CoordinateAxis(data=data, dims=[sample_dim]))
 
 
 class FlattenTransformer(BaseStatefulTransformer[FlattenSettings, AxisArray, AxisArray, _LagFlattenState]):
@@ -118,8 +120,19 @@ class FlattenTransformer(BaseStatefulTransformer[FlattenSettings, AxisArray, Axi
     sigproc-composed ``"label"`` (``"t-2/c0"`` style).
     """
 
-    def _hash_message(self, message: AxisArray) -> int:
-        return hash((tuple(message.dims), tuple(message.data.shape)))
+    STREAMING_DIMS = ("win",)
+    """Fallback chunk dimension when the producer does not declare one.
+
+    The base class defaults to ``("time",)``, which is exactly wrong here: the
+    canonical input is ``(win, time, ch[, feature])``, where ``win`` is what
+    grows per message and ``time`` is the *lag* dimension inside each window.
+    The lag count sizes the lag axis built below, so excluding ``time`` would
+    stop this noticing a window-length change, while including ``win`` would
+    rebuild the inner transformer every time the window count jittered.
+
+    Consulted only when :attr:`AxisArray.chunk_dim` is absent; a producer that
+    declares it -- ezmsg-sigproc's ``Window`` does -- overrides this.
+    """
 
     def _reset_state(self, message: AxisArray) -> None:
         preserve_axis = self.settings.preserve_axis or message.dims[0]

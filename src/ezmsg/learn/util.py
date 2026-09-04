@@ -9,6 +9,28 @@ from ._optional import missing_extra
 # from sklearn.neural_network import MLPClassifier
 
 
+def with_fingerprint(axis: AxisArray.CoordinateAxis) -> AxisArray.CoordinateAxis:
+    """Compute *axis*'s fingerprint now, and return the axis.
+
+    Every stateful consumer reads the fingerprint of the coordinate axes that
+    describe a stream's configuration, and the value is cached on the instance
+    and pickled with it. Computing it where the axis is built pays the checksum
+    once, for everybody:
+
+    * In this process the axis object is reused for the life of the stream, so
+      one call covers every message and every consumer downstream of it.
+    * Across a process boundary it is better than that. Unpickling hands out a
+      *new* axis object per message, so a cold axis is re-checksummed by the
+      first consumer in every receiving process, on every message.
+
+    Apply it to axes that describe the stream -- channel labels, class labels,
+    lag labels -- not to per-message coordinates along the chunk dimension,
+    whose fingerprint no consumer reads.
+    """
+    axis.fingerprint
+    return axis
+
+
 class RegressorType(str, Enum):
     ADAPTIVE = "adaptive"
     STATIC = "static"

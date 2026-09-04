@@ -64,6 +64,23 @@ class SGDDecoderTransformer(BaseAdaptiveTransformer[SGDDecoderSettings, AxisArra
             )
         return model
 
+    def _hash_message(self, message: AxisArray) -> int:
+        """Constant: inference must never rebuild the model.
+
+        The model's lifecycle belongs to `partial_fit`, which sets `_hash` to 0
+        itself once it has trained. Training samples arrive as
+        `(time, ch, freq)` and inference windows as `(win, time, ch, freq)`, so
+        any hash that reads the layout differs between the two and makes every
+        alternation throw the fitted model away -- which is what
+        `_refreshed_model()` below does.
+
+        This was previously inherited from ezmsg-baseproc's old default, which
+        returned a constant for everything. Now that the default keys on the
+        message layout, the assumption has to be stated here rather than
+        depended upon.
+        """
+        return 0
+
     def _reset_state(self, message: AxisArray) -> None:
         self._state.model = self._refreshed_model()
 

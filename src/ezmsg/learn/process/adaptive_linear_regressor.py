@@ -22,7 +22,7 @@ from ezmsg.baseproc import (
 from ezmsg.util.messages.axisarray import AxisArray, replace
 
 from .._optional import missing_extra
-from ..util import AdaptiveLinearRegressor, RegressorType, get_regressor
+from ..util import AdaptiveLinearRegressor, RegressorType, get_regressor, with_fingerprint
 
 try:
     import pandas as pd
@@ -86,7 +86,7 @@ def _prediction_template_from_signal(message: AxisArray, output_labels: list[typ
         dims=["time", "ch"],
         axes={
             "time": replace(message.axes["time"], offset=message.axes["time"].offset),
-            "ch": AxisArray.CoordinateAxis(data=np.asarray(output_labels), dims=["ch"]),
+            "ch": with_fingerprint(AxisArray.CoordinateAxis(data=np.asarray(output_labels), dims=["ch"])),
         },
         key=message.key + "_pred",
     )
@@ -148,8 +148,12 @@ class AdaptiveLinearRegressorTransformer(
             self.state.model = self._regressor_klass(**self.settings.model_kwargs)
 
     def _hash_message(self, message: AxisArray) -> int:
-        # So far, nothing to reset so hash can be constant.
-        return -1
+        # Nothing to reset -- `.model` is built in __init__ and `.template` is
+        # updated in partial_fit -- so a constant is both correct and the
+        # cheapest possible hash. Zero rather than -1: -1 is the sentinel
+        # `_hash` starts at and that `_request_reset()` writes, so returning it
+        # made an explicitly requested reset compare equal and be swallowed.
+        return 0
 
     def _reset_state(self, message: AxisArray) -> None:
         # So far, there is nothing to reset.
