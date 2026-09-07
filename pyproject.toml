@@ -15,7 +15,7 @@ dependencies = [
     # package named with a pre-release marker in *this* file.
     "ezmsg>=3.10.0b2",
     "ezmsg-baseproc>=1.13.0",
-    "ezmsg-sigproc>=3.8.0",  # Window/Resample must resolve chunk_dim from axis=None
+    "ezmsg-sigproc>=3.8.1",  # Window/Resample must resolve chunk_dim from axis=None
     "numpy",
     "scipy",
     "array-api-compat",

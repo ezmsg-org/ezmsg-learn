@@ -17,15 +17,10 @@ from ezmsg.baseproc import (
     BaseTransformerUnit,
     SampleTriggerMessage,
     processor_state,
+    suppress_axis_deprecation,
     warn_axis_deprecated,
 )
 from ezmsg.sigproc.resample import ResampleSettings, ResampleUnit
-
-# Suppression has to come from whichever module raises the warning, and
-# ezmsg-sigproc 3.8.0 shipped its own copy of the mechanism before it moved to
-# ezmsg-baseproc. Later versions re-export baseproc's, so this import works
-# against both.
-from ezmsg.sigproc.util.deprecation import suppress_axis_deprecation
 from ezmsg.sigproc.window import Window, WindowSettings
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
