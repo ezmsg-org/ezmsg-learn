@@ -114,11 +114,12 @@ class IncrementalDecompTransformer(CompositeProcessor[IncrementalDecompSettings,
             axis_idx = train_msg.get_axis_idx("win")
             win_axis = train_msg.axes["win"]
             offsets = win_axis.value(np.asarray(range(train_msg.data.shape[axis_idx])))
-            # Slicing "win" away leaves each sub-message no longer a chunk
-            # along it, so the declaration has to go before the slice -- an
-            # AxisArray rejects a chunk_dim that is not in its dims. Each window
-            # is then a chunk along the within-window streaming axis, which is
-            # what the offset fix-up below re-anchors.
+            # Slicing "win" away leaves each sub-message no longer a chunk along
+            # it. Newer ezmsg clears the declaration for us, but say what these
+            # slices *are* chunks along rather than leaving them undeclared:
+            # successive windows advance along the within-window axis, which is
+            # what the offset fix-up below re-anchors. Clearing it first keeps
+            # this working on ezmsg versions that do not.
             unbundled = replace(train_msg, chunk_dim=None)
             for ix, _msg in enumerate(unbundled.iter_over_axis("win")):
                 _msg = replace(
@@ -130,6 +131,7 @@ class IncrementalDecompTransformer(CompositeProcessor[IncrementalDecompSettings,
                             offset=_msg.axes["time"].offset + offsets[ix],
                         ),
                     },
+                    chunk_dim="time",
                 )
                 self._procs["decomp"].partial_fit(_msg)
 
