@@ -16,6 +16,8 @@ from ezmsg.baseproc import (
     BaseStatefulTransformer,
     BaseTransformerUnit,
     processor_state,
+    resolve_configured_chunk_dim,
+    warn_axis_deprecated,
 )
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
@@ -31,17 +33,30 @@ except ImportError as exc:
 
 class SLDASettings(ez.Settings):
     settings_path: str
-    axis: str = "time"
+
+    axis: str | None = None
+    """.. deprecated:: 1.6
+        Scheduled for removal in 2.0. The samples this classifies accumulate
+        along one dimension, and the cached output template is keyed to it;
+        that dimension now comes from
+        :attr:`~ezmsg.util.messages.axisarray.AxisArray.chunk_dim`."""
+
+    def __post_init__(self) -> None:
+        warn_axis_deprecated(self, package="ezmsg-learn", removal="2.0")
 
 
 @processor_state
 class SLDAState:
+    axis: str = ""
+    """The resolved chunk dimension, fixed at reset so every later use agrees."""
+
     lda: LDA
     out_template: typing.Optional[ClassifierMessage] = None
 
 
 class SLDATransformer(BaseStatefulTransformer[SLDASettings, AxisArray, ClassifierMessage, SLDAState]):
     def _reset_state(self, message: AxisArray) -> None:
+        self.state.axis = resolve_configured_chunk_dim(self, message, self.settings.axis, legacy_default="time")
         if self.settings.settings_path[-4:] == ".mat":
             # Expects a very specific format from a specific project. Not for general use.
             import scipy.io as sio
@@ -77,9 +92,9 @@ class SLDATransformer(BaseStatefulTransformer[SLDASettings, AxisArray, Classifie
         zero_shape = (0, len(out_labels))
         self.state.out_template = ClassifierMessage(
             data=np.zeros(zero_shape, dtype=message.data.dtype),
-            dims=[self.settings.axis, "classes"],
+            dims=[self.state.axis, "classes"],
             axes={
-                self.settings.axis: message.axes[self.settings.axis],
+                self.state.axis: message.axes[self.state.axis],
                 "classes": with_fingerprint(AxisArray.CoordinateAxis(data=np.array(out_labels), dims=["classes"])),
             },
             labels=out_labels,
@@ -88,7 +103,7 @@ class SLDATransformer(BaseStatefulTransformer[SLDASettings, AxisArray, Classifie
 
     def _process(self, message: AxisArray) -> ClassifierMessage:
         xp = get_namespace(message.data)
-        samp_ax_idx = message.dims.index(self.settings.axis)
+        samp_ax_idx = message.dims.index(self.state.axis)
 
         # Move sample axis to front
         perm = (samp_ax_idx,) + tuple(i for i in range(message.data.ndim) if i != samp_ax_idx)
@@ -111,8 +126,8 @@ class SLDATransformer(BaseStatefulTransformer[SLDASettings, AxisArray, Classifie
                 X_np = X_np.reshape(X_np.shape[0], -1)
                 pred_probas = self.state.lda.predict_proba(X_np)
 
-            update_ax = self.state.out_template.axes[self.settings.axis]
-            update_ax.offset = message.axes[self.settings.axis].offset
+            update_ax = self.state.out_template.axes[self.state.axis]
+            update_ax.offset = message.axes[self.state.axis].offset
 
             return replace(
                 self.state.out_template,
@@ -120,7 +135,7 @@ class SLDATransformer(BaseStatefulTransformer[SLDASettings, AxisArray, Classifie
                 axes={
                     **self.state.out_template.axes,
                     # `replace` will copy the minimal set of fields
-                    self.settings.axis: replace(update_ax, offset=update_ax.offset),
+                    self.state.axis: replace(update_ax, offset=update_ax.offset),
                 },
             )
         else:

@@ -135,7 +135,10 @@ class TestIncrementalDecompTransformer:
         if update_interval > 0:
             assert "windowing" in transformer._procs
             win = transformer._procs["windowing"]
-            assert win.settings.axis == "time"
+            # Unset on purpose: Window resolves the stream's chunk_dim, which is
+            # what the old hardcoded "time" was standing in for (and got wrong
+            # downstream of another windowing stage).
+            assert win.settings.axis is None
             assert win.settings.window_dur == update_interval
             assert win.settings.window_shift == update_interval
             assert win.settings.zero_pad_until == "none"

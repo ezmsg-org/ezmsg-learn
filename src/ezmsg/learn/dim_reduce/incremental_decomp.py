@@ -6,6 +6,7 @@ from ezmsg.baseproc import (
     BaseStatefulProcessor,
     BaseTransformerUnit,
     CompositeProcessor,
+    warn_axis_deprecated,
 )
 from ezmsg.sigproc.window import WindowTransformer
 from ezmsg.util.messages.axisarray import AxisArray, replace
@@ -19,7 +20,18 @@ from .adaptive_decomp import (
 
 
 class IncrementalDecompSettings(ez.Settings):
-    axis: str = "!time"
+    axis: str | None = None
+    """Which dimension to decompose. See
+    :obj:`~ezmsg.learn.dim_reduce.adaptive_decomp.AdaptiveDecompSettings.axis`.
+
+    .. deprecated:: 1.6
+        The ``"!time"`` spelling is scheduled for removal in 2.0; leave this
+        unset for the same behaviour."""
+
+    def __post_init__(self) -> None:
+        if self.axis is not None and self.axis.startswith("!"):
+            warn_axis_deprecated(self, package="ezmsg-learn", removal="2.0")
+
     n_components: int = 2
     update_interval: float = 0.0
     method: str = "pca"
@@ -72,8 +84,12 @@ class IncrementalDecompTransformer(CompositeProcessor[IncrementalDecompSettings,
 
         # Create windowing processor if update_interval is specified
         if settings.update_interval > 0:
-            # TODO: This `iter_axis` is likely incorrect.
-            iter_axis = settings.axis[1:] if settings.axis.startswith("!") else "time"
+            # Only the "!axis" spelling names the iteration dimension outright.
+            # Otherwise leave it to Window, which resolves chunk_dim from the
+            # message -- this is the "likely incorrect" hardcoded "time" that
+            # used to be here, and there is no message to resolve from at this
+            # point anyway.
+            iter_axis = settings.axis[1:] if (settings.axis or "").startswith("!") else None
             windowing = WindowTransformer(
                 axis=iter_axis,
                 window_dur=settings.update_interval,
@@ -98,7 +114,14 @@ class IncrementalDecompTransformer(CompositeProcessor[IncrementalDecompSettings,
             axis_idx = train_msg.get_axis_idx("win")
             win_axis = train_msg.axes["win"]
             offsets = win_axis.value(np.asarray(range(train_msg.data.shape[axis_idx])))
-            for ix, _msg in enumerate(train_msg.iter_over_axis("win")):
+            # Slicing "win" away leaves each sub-message no longer a chunk along
+            # it. Newer ezmsg clears the declaration for us, but say what these
+            # slices *are* chunks along rather than leaving them undeclared:
+            # successive windows advance along the within-window axis, which is
+            # what the offset fix-up below re-anchors. Clearing it first keeps
+            # this working on ezmsg versions that do not.
+            unbundled = replace(train_msg, chunk_dim=None)
+            for ix, _msg in enumerate(unbundled.iter_over_axis("win")):
                 _msg = replace(
                     _msg,
                     axes={
@@ -108,6 +131,7 @@ class IncrementalDecompTransformer(CompositeProcessor[IncrementalDecompSettings,
                             offset=_msg.axes["time"].offset + offsets[ix],
                         ),
                     },
+                    chunk_dim="time",
                 )
                 self._procs["decomp"].partial_fit(_msg)
 

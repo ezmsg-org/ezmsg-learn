@@ -17,6 +17,8 @@ from ezmsg.baseproc import (
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
     processor_state,
+    resolve_chunk_dim,
+    warn_axis_deprecated,
 )
 from ezmsg.util.messages.axisarray import AxisArray, replace
 
@@ -30,7 +32,25 @@ except ImportError as exc:
 
 
 class AdaptiveDecompSettings(ez.Settings):
-    axis: str = "!time"
+    axis: str | None = None
+    """Which dimension to decompose.
+
+    ``None`` (default) decomposes every dimension except the one messages
+    accumulate along, iterating over that one. Naming a dimension (e.g.
+    ``"ch"``) decomposes it and iterates over the chunk dimension instead.
+
+    .. deprecated:: 1.6
+        The ``"!time"`` spelling -- "iterate over time" -- is scheduled for
+        removal in 2.0. It hardcodes what
+        :attr:`~ezmsg.util.messages.axisarray.AxisArray.chunk_dim` now
+        answers; leave this unset for the same behaviour."""
+
+    def __post_init__(self) -> None:
+        # Only the "!" spelling is going away. Naming a target axis is a real
+        # choice about what to decompose, and stays.
+        if self.axis is not None and self.axis.startswith("!"):
+            warn_axis_deprecated(self, package="ezmsg-learn", removal="2.0")
+
     n_components: int = 2
 
 
@@ -76,26 +96,33 @@ class AdaptiveDecompTransformer(
         return estimator_klass(**estimator_settings)
 
     def _calculate_axis_groups(self, message: AxisArray):
-        if self.settings.axis.startswith("!"):
+        axis = self.settings.axis
+        if axis is None:
+            # Iterate over the dimension messages accumulate along and collapse
+            # every other one -- what "!time" spelled, with the dimension read
+            # off the stream instead of assumed.
+            iter_axis = resolve_chunk_dim(message, self.STREAMING_DIMS)
+            it_ax_ix = message.get_axis_idx(iter_axis)
+            targ_axes = message.dims[:it_ax_ix] + message.dims[it_ax_ix + 1 :]
+            off_targ_axes = []
+        elif axis.startswith("!"):
             # Iterate over the !axis and collapse all other axes
-            iter_axis = self.settings.axis[1:]
+            iter_axis = axis[1:]
             it_ax_ix = message.get_axis_idx(iter_axis)
             targ_axes = message.dims[:it_ax_ix] + message.dims[it_ax_ix + 1 :]
             off_targ_axes = []
         else:
             # Do PCA on the parameterized axis
-            targ_axes = [self.settings.axis]
-            # Iterate over streaming axis
-            iter_axis = "win" if "win" in message.dims else "time"
-            if iter_axis == self.settings.axis:
-                raise ValueError(
-                    f"Iterating axis ({iter_axis}) cannot be the same as the target axis ({self.settings.axis})"
-                )
+            targ_axes = [axis]
+            # Iterate over the dimension messages accumulate along. This was a
+            # hand-rolled `"win" if "win" in dims else "time"` guess, which is
+            # exactly what chunk_dim exists to answer.
+            iter_axis = resolve_chunk_dim(message, self.STREAMING_DIMS)
+            if iter_axis == axis:
+                raise ValueError(f"Iterating axis ({iter_axis}) cannot be the same as the target axis ({axis})")
             it_ax_ix = message.get_axis_idx(iter_axis)
             # Remaining axes are to be treated independently
-            off_targ_axes = [
-                _ for _ in (message.dims[:it_ax_ix] + message.dims[it_ax_ix + 1 :]) if _ != self.settings.axis
-            ]
+            off_targ_axes = [_ for _ in (message.dims[:it_ax_ix] + message.dims[it_ax_ix + 1 :]) if _ != axis]
         self._state.axis_groups = iter_axis, targ_axes, off_targ_axes
 
     def _reset_state(self, message: AxisArray) -> None:
