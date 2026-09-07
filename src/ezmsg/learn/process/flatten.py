@@ -26,6 +26,7 @@ from ezmsg.baseproc import (
     BaseStatefulTransformer,
     BaseTransformerUnit,
     processor_state,
+    resolve_chunk_dim,
 )
 from ezmsg.sigproc.flatten import (
     FlattenSettings as SigprocFlattenSettings,
@@ -135,7 +136,7 @@ class FlattenTransformer(BaseStatefulTransformer[FlattenSettings, AxisArray, Axi
     """
 
     def _reset_state(self, message: AxisArray) -> None:
-        preserve_axis = self.settings.preserve_axis or message.dims[0]
+        preserve_axis = self.settings.preserve_axis or resolve_chunk_dim(message, self.STREAMING_DIMS)
         sample_axis = self.settings.sample_axis or preserve_axis
         feature_axis = self.settings.feature_axis
 

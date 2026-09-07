@@ -17,6 +17,8 @@ from ezmsg.baseproc import (
     BaseTransformerUnit,
     SampleTriggerMessage,
     processor_state,
+    suppress_axis_deprecation,
+    warn_axis_deprecated,
 )
 from ezmsg.sigproc.resample import ResampleSettings, ResampleUnit
 from ezmsg.sigproc.window import Window, WindowSettings
@@ -171,8 +173,14 @@ class SampleAdaptRegressorSettings(ez.Settings):
     generic ``ch0..chN``."""
 
     # Resampling settings
-    resample_axis: str = "time"
-    """Axis to resample along."""
+    resample_axis: str | None = None
+    """.. deprecated:: 1.6
+        Scheduled for removal in 2.0. Resampling buffers along the dimension
+        messages accumulate along, which now comes from
+        :attr:`~ezmsg.util.messages.axisarray.AxisArray.chunk_dim`."""
+
+    def __post_init__(self) -> None:
+        warn_axis_deprecated(self, "resample_axis", package="ezmsg-learn", removal="2.0")
 
     resample_buffer_duration: float = 2.0
     """Duration of the buffer for resampling in seconds."""
@@ -274,7 +282,8 @@ def build_sample_adapt_regressor(
             if use_window:
                 self.WINDOW.apply_settings(
                     WindowSettings(
-                        axis="time",
+                        # No `axis`: Window follows the stream's chunk_dim, which
+                        # is what "time" was standing in for.
                         newaxis="win",
                         window_dur=self.SETTINGS.decode_window_dur,
                         window_shift=self.SETTINGS.decode_window_shift,
@@ -292,14 +301,17 @@ def build_sample_adapt_regressor(
                     )
                 )
             if use_sample_path:
-                self.RESAMPLE.apply_settings(
-                    ResampleSettings(
-                        axis=self.SETTINGS.resample_axis,
-                        max_chunk_delay=float("inf"),
-                        fill_value="extrapolate",
-                        buffer_duration=self.SETTINGS.resample_buffer_duration,
+                # Forwarding our own already-warned setting; warning again would
+                # name a sigproc class for something set on ours.
+                with suppress_axis_deprecation():
+                    self.RESAMPLE.apply_settings(
+                        ResampleSettings(
+                            axis=self.SETTINGS.resample_axis,
+                            max_chunk_delay=float("inf"),
+                            fill_value="extrapolate",
+                            buffer_duration=self.SETTINGS.resample_buffer_duration,
+                        )
                     )
-                )
                 self.SEQSEQSAMPLER.apply_settings(
                     SeqSeqSamplerSettings(
                         max_buffer_dur=self.SETTINGS.sampler_max_buffer_dur,

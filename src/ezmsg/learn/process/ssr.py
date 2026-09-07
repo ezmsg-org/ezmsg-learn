@@ -53,6 +53,7 @@ from ezmsg.baseproc import (
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
     processor_state,
+    resolve_feature_dim,
 )
 from ezmsg.baseproc.protocols import SettingsType, StateType
 from ezmsg.sigproc.affinetransform import (
@@ -149,7 +150,7 @@ class SelfSupervisedRegressionTransformer(
     # -- message hash / state management ------------------------------------
 
     def _reset_state(self, message: AxisArray) -> None:
-        axis = self.settings.axis or message.dims[-1]
+        axis = self.settings.axis or resolve_feature_dim(message)
         axis_idx = message.get_axis_idx(axis)
         n_channels = message.data.shape[axis_idx]
 
@@ -358,7 +359,7 @@ class SelfSupervisedRegressionTransformer(
             self._reset_state(message)
             self._hash = msg_hash
 
-        axis = self.settings.axis or message.dims[-1]
+        axis = self.settings.axis or resolve_feature_dim(message)
         axis_idx = message.get_axis_idx(axis)
         data = message.data
 
@@ -510,7 +511,7 @@ class LRRTransformer(
     # -- transform -----------------------------------------------------------
 
     def _process(self, message: AxisArray) -> AxisArray:
-        axis = self.settings.axis or message.dims[-1]
+        axis = self.settings.axis or resolve_feature_dim(message)
         if message.data.shape[message.get_axis_idx(axis)] == 0:
             # No channels (e.g. a fully sliced-out hub): nothing to rereference.
             # Pass the 0-channel message through unchanged -- building an affine

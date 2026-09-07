@@ -14,8 +14,8 @@ dependencies = [
     # left to the transitive requirement: uv only enables pre-releases for a
     # package named with a pre-release marker in *this* file.
     "ezmsg>=3.10.0b2",
-    "ezmsg-baseproc>=1.12.0",
-    "ezmsg-sigproc>=3.0.0",
+    "ezmsg-baseproc>=1.13.0",
+    "ezmsg-sigproc>=3.8.0",  # Window/Resample must resolve chunk_dim from axis=None
     "numpy",
     "scipy",
     "array-api-compat",
