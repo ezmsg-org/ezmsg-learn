@@ -11,6 +11,12 @@ on:
       - dev
   workflow_dispatch:
 
+# A new push to a PR supersedes the run already in flight for that ref, so a
+# wedged job cannot sit on a runner while its replacement queues behind it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     strategy:
@@ -21,6 +27,7 @@ jobs:
           - "windows-latest"
           - "macos-latest"
     runs-on: ${{matrix.os}}
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -53,6 +60,7 @@ jobs:
   minimal-install:
     name: Minimal install (no extras)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
