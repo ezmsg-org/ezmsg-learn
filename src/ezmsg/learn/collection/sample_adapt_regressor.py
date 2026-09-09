@@ -177,7 +177,7 @@ class SampleAdaptRegressorSettings(ez.Settings):
     """.. deprecated:: 1.6
         Scheduled for removal in 2.0. Resampling buffers along the dimension
         messages accumulate along, which now comes from
-        :attr:`~ezmsg.util.messages.axisarray.AxisArray.chunk_dim`."""
+        :attr:`~ezmsg.util.messages.axisarray.AxisArray.stream_dim`."""
 
     def __post_init__(self) -> None:
         warn_axis_deprecated(self, "resample_axis", package="ezmsg-learn", removal="2.0")
@@ -282,7 +282,7 @@ def build_sample_adapt_regressor(
             if use_window:
                 self.WINDOW.apply_settings(
                     WindowSettings(
-                        # No `axis`: Window follows the stream's chunk_dim, which
+                        # No `axis`: Window follows the stream's stream_dim, which
                         # is what "time" was standing in for.
                         newaxis="win",
                         window_dur=self.SETTINGS.decode_window_dur,

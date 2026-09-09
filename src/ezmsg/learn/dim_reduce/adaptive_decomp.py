@@ -17,7 +17,7 @@ from ezmsg.baseproc import (
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
     processor_state,
-    resolve_chunk_dim,
+    resolve_stream_dim,
     warn_axis_deprecated,
 )
 from ezmsg.util.messages.axisarray import AxisArray, replace
@@ -37,12 +37,12 @@ class AdaptiveDecompSettings(ez.Settings):
 
     ``None`` (default) decomposes every dimension except the one messages
     accumulate along, iterating over that one. Naming a dimension (e.g.
-    ``"ch"``) decomposes it and iterates over the chunk dimension instead.
+    ``"ch"``) decomposes it and iterates over the stream dimension instead.
 
     .. deprecated:: 1.6
         The ``"!time"`` spelling -- "iterate over time" -- is scheduled for
         removal in 2.0. It hardcodes what
-        :attr:`~ezmsg.util.messages.axisarray.AxisArray.chunk_dim` now
+        :attr:`~ezmsg.util.messages.axisarray.AxisArray.stream_dim` now
         answers; leave this unset for the same behaviour."""
 
     def __post_init__(self) -> None:
@@ -101,7 +101,7 @@ class AdaptiveDecompTransformer(
             # Iterate over the dimension messages accumulate along and collapse
             # every other one -- what "!time" spelled, with the dimension read
             # off the stream instead of assumed.
-            iter_axis = resolve_chunk_dim(message, self.STREAMING_DIMS)
+            iter_axis = resolve_stream_dim(message, self.STREAMING_DIMS)
             it_ax_ix = message.get_axis_idx(iter_axis)
             targ_axes = message.dims[:it_ax_ix] + message.dims[it_ax_ix + 1 :]
             off_targ_axes = []
@@ -116,8 +116,8 @@ class AdaptiveDecompTransformer(
             targ_axes = [axis]
             # Iterate over the dimension messages accumulate along. This was a
             # hand-rolled `"win" if "win" in dims else "time"` guess, which is
-            # exactly what chunk_dim exists to answer.
-            iter_axis = resolve_chunk_dim(message, self.STREAMING_DIMS)
+            # exactly what stream_dim exists to answer.
+            iter_axis = resolve_stream_dim(message, self.STREAMING_DIMS)
             if iter_axis == axis:
                 raise ValueError(f"Iterating axis ({iter_axis}) cannot be the same as the target axis ({axis})")
             it_ax_ix = message.get_axis_idx(iter_axis)

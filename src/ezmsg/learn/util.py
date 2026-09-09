@@ -24,7 +24,7 @@ def with_fingerprint(axis: AxisArray.CoordinateAxis) -> AxisArray.CoordinateAxis
       first consumer in every receiving process, on every message.
 
     Apply it to axes that describe the stream -- channel labels, class labels,
-    lag labels -- not to per-message coordinates along the chunk dimension,
+    lag labels -- not to per-message coordinates along the stream dimension,
     whose fingerprint no consumer reads.
     """
     axis.fingerprint

@@ -16,7 +16,7 @@ from ezmsg.baseproc import (
     BaseStatefulTransformer,
     BaseTransformerUnit,
     processor_state,
-    resolve_configured_chunk_dim,
+    resolve_configured_stream_dim,
     warn_axis_deprecated,
 )
 from ezmsg.util.messages.axisarray import AxisArray
@@ -39,7 +39,7 @@ class SLDASettings(ez.Settings):
         Scheduled for removal in 2.0. The samples this classifies accumulate
         along one dimension, and the cached output template is keyed to it;
         that dimension now comes from
-        :attr:`~ezmsg.util.messages.axisarray.AxisArray.chunk_dim`."""
+        :attr:`~ezmsg.util.messages.axisarray.AxisArray.stream_dim`."""
 
     def __post_init__(self) -> None:
         warn_axis_deprecated(self, package="ezmsg-learn", removal="2.0")
@@ -48,7 +48,7 @@ class SLDASettings(ez.Settings):
 @processor_state
 class SLDAState:
     axis: str = ""
-    """The resolved chunk dimension, fixed at reset so every later use agrees."""
+    """The resolved stream dimension, fixed at reset so every later use agrees."""
 
     lda: LDA
     out_template: typing.Optional[ClassifierMessage] = None
@@ -56,7 +56,7 @@ class SLDAState:
 
 class SLDATransformer(BaseStatefulTransformer[SLDASettings, AxisArray, ClassifierMessage, SLDAState]):
     def _reset_state(self, message: AxisArray) -> None:
-        self.state.axis = resolve_configured_chunk_dim(self, message, self.settings.axis, legacy_default="time")
+        self.state.axis = resolve_configured_stream_dim(self, message, self.settings.axis, legacy_default="time")
         if self.settings.settings_path[-4:] == ".mat":
             # Expects a very specific format from a specific project. Not for general use.
             import scipy.io as sio

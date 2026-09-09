@@ -31,7 +31,7 @@ def signal(labels, n_time=32, fs=100.0, key="dev"):
             "ch": CoordinateAxis(data=np.array(labels), dims=["ch"]),
         },
         key=key,
-        chunk_dim="time",
+        stream_dim="time",
     )
 
 
@@ -65,7 +65,7 @@ class TestTheHelper:
 
 
 class TestCreatedAxesArePrimed:
-    """Messages here carry no ``chunk_dim``: released ezmsg-sigproc does not set
+    """Messages here carry no ``stream_dim``: released ezmsg-sigproc does not set
     it, so that is what these transformers actually receive today. It is why
     ``FlattenTransformer.STREAMING_DIMS`` names ``win`` -- the base class's
     ``("time",)`` fallback would exclude the lag dimension, which is the one

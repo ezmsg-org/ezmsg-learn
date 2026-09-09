@@ -135,7 +135,7 @@ class TestIncrementalDecompTransformer:
         if update_interval > 0:
             assert "windowing" in transformer._procs
             win = transformer._procs["windowing"]
-            # Unset on purpose: Window resolves the stream's chunk_dim, which is
+            # Unset on purpose: Window resolves the stream's stream_dim, which is
             # what the old hardcoded "time" was standing in for (and got wrong
             # downstream of another windowing stage).
             assert win.settings.axis is None

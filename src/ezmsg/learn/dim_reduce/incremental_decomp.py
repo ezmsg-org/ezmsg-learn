@@ -85,7 +85,7 @@ class IncrementalDecompTransformer(CompositeProcessor[IncrementalDecompSettings,
         # Create windowing processor if update_interval is specified
         if settings.update_interval > 0:
             # Only the "!axis" spelling names the iteration dimension outright.
-            # Otherwise leave it to Window, which resolves chunk_dim from the
+            # Otherwise leave it to Window, which resolves stream_dim from the
             # message -- this is the "likely incorrect" hardcoded "time" that
             # used to be here, and there is no message to resolve from at this
             # point anyway.
@@ -114,13 +114,13 @@ class IncrementalDecompTransformer(CompositeProcessor[IncrementalDecompSettings,
             axis_idx = train_msg.get_axis_idx("win")
             win_axis = train_msg.axes["win"]
             offsets = win_axis.value(np.asarray(range(train_msg.data.shape[axis_idx])))
-            # Slicing "win" away leaves each sub-message no longer a chunk along
+            # Slicing "win" away leaves each sub-message no longer a stream along
             # it. Newer ezmsg clears the declaration for us, but say what these
             # slices *are* chunks along rather than leaving them undeclared:
             # successive windows advance along the within-window axis, which is
             # what the offset fix-up below re-anchors. Clearing it first keeps
             # this working on ezmsg versions that do not.
-            unbundled = replace(train_msg, chunk_dim=None)
+            unbundled = replace(train_msg, stream_dim=None)
             for ix, _msg in enumerate(unbundled.iter_over_axis("win")):
                 _msg = replace(
                     _msg,
@@ -131,7 +131,7 @@ class IncrementalDecompTransformer(CompositeProcessor[IncrementalDecompSettings,
                             offset=_msg.axes["time"].offset + offsets[ix],
                         ),
                     },
-                    chunk_dim="time",
+                    stream_dim="time",
                 )
                 self._procs["decomp"].partial_fit(_msg)
 

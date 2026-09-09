@@ -6,7 +6,7 @@ from ezmsg.baseproc import (
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
     processor_state,
-    resolve_chunk_dim,
+    resolve_stream_dim,
 )
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
@@ -37,7 +37,7 @@ class SGDDecoderState:
 
 class SGDDecoderTransformer(BaseAdaptiveTransformer[SGDDecoderSettings, AxisArray, ClassifierMessage, SGDDecoderState]):
     STREAMING_DIMS = ("win", "time")
-    """This decoder is fed windows, so a producer that declares no ``chunk_dim``
+    """This decoder is fed windows, so a producer that declares no ``stream_dim``
     is accumulating along ``win`` rather than ``time``. The base default would
     guess ``time`` and flatten the windows into the feature vector."""
 
@@ -96,7 +96,7 @@ class SGDDecoderTransformer(BaseAdaptiveTransformer[SGDDecoderSettings, AxisArra
         if np.any(np.isnan(message.data)):
             return None
         try:
-            chunk = resolve_chunk_dim(message, self.STREAMING_DIMS)
+            chunk = resolve_stream_dim(message, self.STREAMING_DIMS)
             chunk_idx = message.get_axis_idx(chunk)
             data = message.data if chunk_idx == 0 else np.moveaxis(message.data, chunk_idx, 0)
             X = data.reshape((data.shape[0], -1))

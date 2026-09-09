@@ -26,7 +26,7 @@ from ezmsg.baseproc import (
     BaseStatefulTransformer,
     BaseTransformerUnit,
     processor_state,
-    resolve_chunk_dim,
+    resolve_stream_dim,
 )
 from ezmsg.sigproc.flatten import (
     FlattenSettings as SigprocFlattenSettings,
@@ -122,7 +122,7 @@ class FlattenTransformer(BaseStatefulTransformer[FlattenSettings, AxisArray, Axi
     """
 
     STREAMING_DIMS = ("win",)
-    """Fallback chunk dimension when the producer does not declare one.
+    """Fallback stream dimension when the producer does not declare one.
 
     The base class defaults to ``("time",)``, which is exactly wrong here: the
     canonical input is ``(win, time, ch[, feature])``, where ``win`` is what
@@ -131,12 +131,12 @@ class FlattenTransformer(BaseStatefulTransformer[FlattenSettings, AxisArray, Axi
     stop this noticing a window-length change, while including ``win`` would
     rebuild the inner transformer every time the window count jittered.
 
-    Consulted only when :attr:`AxisArray.chunk_dim` is absent; a producer that
+    Consulted only when :attr:`AxisArray.stream_dim` is absent; a producer that
     declares it -- ezmsg-sigproc's ``Window`` does -- overrides this.
     """
 
     def _reset_state(self, message: AxisArray) -> None:
-        preserve_axis = self.settings.preserve_axis or resolve_chunk_dim(message, self.STREAMING_DIMS)
+        preserve_axis = self.settings.preserve_axis or resolve_stream_dim(message, self.STREAMING_DIMS)
         sample_axis = self.settings.sample_axis or preserve_axis
         feature_axis = self.settings.feature_axis
 
