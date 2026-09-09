@@ -14,8 +14,8 @@ dependencies = [
     # left to the transitive requirement: uv only enables pre-releases for a
     # package named with a pre-release marker in *this* file.
     "ezmsg>=3.10.0b3",
-    "ezmsg-baseproc>=1.13.0",
-    "ezmsg-sigproc>=3.8.1",  # Window/Resample must resolve stream_dim from axis=None
+    "ezmsg-baseproc>=1.14.0",
+    "ezmsg-sigproc>=3.10.0",  # Window/Resample must resolve stream_dim from axis=None
     "numpy",
     "scipy",
     "array-api-compat",
@@ -50,7 +50,7 @@ test = [
     # The backends are extras, so `uv sync` would not install them; the test
     # suite covers all of them.
     "ezmsg-learn[all]",
-    "ezmsg-simbiophys>=1.8.0",
+    "ezmsg-simbiophys>=1.10.1",
     "hmmlearn>=0.3.3",
     "pytest>=8.4.1",
 ]
