@@ -15,7 +15,10 @@ from ezmsg.learn.process.rnn import RNNProcessor
 @pytest.fixture
 def simple_message() -> AxisArray:
     n_ch = 192
-    data = np.arange(100 * n_ch).reshape(100, n_ch)
+    n_time = 100
+    # Scale the ramp to unit range. Raw sample indices (up to ~2e4) saturate the RNN gates in
+    # float32, occasionally driving every LSTM hidden unit to exactly +/-0.
+    data = np.arange(n_time * n_ch).reshape(n_time, n_ch) / (n_time * n_ch)
     ch_labels = np.array([f"ch{i}" for i in range(n_ch)])
     message = AxisArray(
         data=data,
