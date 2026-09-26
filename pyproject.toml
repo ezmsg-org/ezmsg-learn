@@ -13,13 +13,35 @@ dependencies = [
     # ezmsg-baseproc's default state hash reads. Pinned directly rather than
     # left to the transitive requirement: uv only enables pre-releases for a
     # package named with a pre-release marker in *this* file.
-    "ezmsg>=3.10.0b3",
+    "ezmsg>=3.10.0b4",
     "ezmsg-baseproc>=1.14.0",
     "ezmsg-sigproc>=3.10.0",  # Window/Resample must resolve stream_dim from axis=None
     "numpy",
     "scipy",
     "array-api-compat",
 ]
+
+
+[project.entry-points."ezmsg.components"]
+"learn.DecodeOutputAdapter" = "ezmsg.learn.collection.sample_adapt_regressor:DecodeOutputAdapter"
+"learn.Flatten" = "ezmsg.learn.process.flatten:Flatten"
+"learn.IncrementalDecompUnit" = "ezmsg.learn.dim_reduce.incremental_decomp:IncrementalDecompUnit"
+"learn.IncrementalPCAUnit" = "ezmsg.learn.dim_reduce.adaptive_decomp:IncrementalPCAUnit"
+"learn.LRRUnit" = "ezmsg.learn.process.ssr:LRRUnit"
+"learn.MLPUnit" = "ezmsg.learn.process.mlp_old:MLPUnit"
+"learn.MiniBatchNMFUnit" = "ezmsg.learn.dim_reduce.adaptive_decomp:MiniBatchNMFUnit"
+"learn.RNNUnit" = "ezmsg.learn.process.rnn:RNNUnit"
+"learn.RefitKalmanFilterUnit" = "ezmsg.learn.process.refit_kalman:RefitKalmanFilterUnit"
+"learn.SGDDecoder" = "ezmsg.learn.process.sgd:SGDDecoder"
+"learn.SLDA" = "ezmsg.learn.process.slda:SLDA"
+"learn.SeqSeqSamplerUnit" = "ezmsg.learn.process.seqseqsampler:SeqSeqSamplerUnit"
+"learn.SklearnModelUnit" = "ezmsg.learn.process.sklearn:SklearnModelUnit"
+"learn.TorchModelUnit" = "ezmsg.learn.process.torch:TorchModelUnit"
+"learn.TorchSimpleUnit" = "ezmsg.learn.process.torch:TorchSimpleUnit"
+"learn.TransformerUnit" = "ezmsg.learn.process.transformer:TransformerUnit"
+"learn.process.adaptive_linear_regressor.AdaptiveLinearRegressorUnit" = "ezmsg.learn.process.adaptive_linear_regressor:AdaptiveLinearRegressorUnit"
+"learn.process.linear_regressor.AdaptiveLinearRegressorUnit" = "ezmsg.learn.process.linear_regressor:AdaptiveLinearRegressorUnit"
+
 
 [project.optional-dependencies]
 # The heavyweight backends are opt-in so that the pure-numpy processors
