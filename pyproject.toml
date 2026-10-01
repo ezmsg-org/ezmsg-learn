@@ -13,8 +13,8 @@ dependencies = [
     # ezmsg-baseproc's default state hash reads. Pinned directly rather than
     # left to the transitive requirement: uv only enables pre-releases for a
     # package named with a pre-release marker in *this* file.
-    "ezmsg>=3.10.0b4",
-    "ezmsg-baseproc>=1.14.0",
+    "ezmsg>=3.10.0b5",
+    "ezmsg-baseproc>=1.15.0",
     "ezmsg-sigproc>=3.10.0",  # Window/Resample must resolve stream_dim from axis=None
     "numpy",
     "scipy",
