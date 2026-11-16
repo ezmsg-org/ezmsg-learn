@@ -258,9 +258,9 @@ class SeqSeqSampler:
             raise ValueError(f"Invalid target: {target}")
 
         ax_ix = message.get_axis_idx("time")
-        # TODO: Check if we need to reset the buffer because the input changed.
 
-        if buffer is None:
+        # A new segment or configuration does not continue what is buffered: start again from this message.
+        if buffer is None or message.segment != buffer.segment or message.config_id != buffer.config_id:
             buffer = copy.deepcopy(message)
             if target == "value":
                 self._value_buffer = buffer
@@ -278,6 +278,8 @@ class SeqSeqSampler:
         else:
             n_times = buffer.data.shape[buffer.get_axis_idx("time")]
             tvec = buffer.axes["time"].value(np.arange(n_times))
+        if len(tvec) == 0:
+            return  # Nothing to trim (e.g. an end-of-stream message).
         t_min = tvec[-1] - self._max_buffer_dur
         b_keep = tvec >= t_min
         if not np.all(b_keep):

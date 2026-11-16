@@ -297,3 +297,45 @@ def test_predict_proba_unsupported_model_raises(input_axisarray, labels_regressi
     proc.fit(input_axisarray.data, labels_regression)
     with pytest.raises(NotImplementedError, match="predict_proba"):
         proc._process(input_axisarray)
+
+
+def test_fit_before_first_call_is_kept(input_axisarray):
+    # The first __call__ must not throw away a model trained before it.
+    X = input_axisarray.data
+    y = X @ np.array([1.0, -2.0, 3.0, 0.5])
+    proc = SklearnModelProcessor(model_class="sklearn.linear_model.LinearRegression")
+    proc.fit(X, y)
+    out = proc(input_axisarray)
+    np.testing.assert_allclose(out.data[:, 0], y, atol=1e-8)
+
+
+def test_partial_fit_before_first_call_is_kept(input_axisarray, labels_regression):
+    proc = SklearnModelProcessor(model_class="sklearn.linear_model.SGDRegressor")
+    proc.partial_fit(
+        replace(input_axisarray, attrs={"trigger": SampleTriggerMessage(timestamp=0.0, value=labels_regression)})
+    )
+    model = proc.state.model
+    expected = model.predict(input_axisarray.data)
+    out = proc(input_axisarray)
+    assert proc.state.model is model
+    np.testing.assert_allclose(out.data[:, 0], expected)
+
+
+def test_feature_count_change_rebuilds_model_and_channels(input_axisarray, labels_two_class):
+    proc = SklearnModelProcessor(model_class="sklearn.linear_model.LogisticRegression", predict_method="predict_proba")
+    proc.fit(input_axisarray.data, labels_two_class)
+    assert proc(input_axisarray).data.shape == (10, 2)
+    model = proc.state.model
+
+    # After the reset the output channel axis follows the new model (3 classes), not the old one.
+    wider = AxisArray(
+        data=np.random.randn(10, 6),
+        dims=["time", "ch"],
+        axes={**input_axisarray.axes, "ch": AxisArray.CoordinateAxis(data=np.arange(6), dims=["ch"])},
+    )
+    proc.fit(wider.data, np.arange(10) % 3)
+    assert proc.state.model is not model
+    assert proc.state.model.n_features_in_ == 6
+    out = proc(wider)
+    assert out.data.shape == (10, 3)
+    np.testing.assert_array_equal(out.axes["ch"].data, [0, 1, 2])

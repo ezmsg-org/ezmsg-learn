@@ -19,6 +19,7 @@ from ezmsg.baseproc import (
     resolve_configured_stream_dim,
     warn_axis_deprecated,
 )
+from ezmsg.sigproc.util.segment import ConfigChain
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
@@ -52,9 +53,15 @@ class SLDAState:
 
     lda: LDA
     out_template: typing.Optional[ClassifierMessage] = None
+    configs: ConfigChain | None = None
+    """Derives the output's config_id from the input's and the classes."""
 
 
 class SLDATransformer(BaseStatefulTransformer[SLDASettings, AxisArray, ClassifierMessage, SLDAState]):
+    def _reset_segment(self, message: AxisArray) -> None:
+        # Nothing here depends on continuity: the classifier is loaded from file.
+        pass
+
     def _reset_state(self, message: AxisArray) -> None:
         self.state.axis = resolve_configured_stream_dim(self, message, self.settings.axis, legacy_default="time")
         if self.settings.settings_path[-4:] == ".mat":
@@ -99,6 +106,10 @@ class SLDATransformer(BaseStatefulTransformer[SLDASettings, AxisArray, Classifie
             },
             labels=out_labels,
             key=message.key,
+            stream_dim=self.state.axis,
+        )
+        self.state.configs = ConfigChain(
+            tuple(self.state.out_template.dims), self.state.out_template.axes["classes"].fingerprint
         )
 
     def _process(self, message: AxisArray) -> ClassifierMessage:
@@ -108,6 +119,7 @@ class SLDATransformer(BaseStatefulTransformer[SLDASettings, AxisArray, Classifie
         # Move sample axis to front
         perm = (samp_ax_idx,) + tuple(i for i in range(message.data.ndim) if i != samp_ax_idx)
         X = xp.permute_dims(message.data, perm)
+        stamp = {"segment": message.segment, "config_id": self.state.configs.update(message.config_id)}
 
         if X.shape[0]:
             if isinstance(self.settings.settings_path, str) and self.settings.settings_path[-4:] == ".mat":
@@ -137,9 +149,10 @@ class SLDATransformer(BaseStatefulTransformer[SLDASettings, AxisArray, Classifie
                     # `replace` will copy the minimal set of fields
                     self.state.axis: replace(update_ax, offset=update_ax.offset),
                 },
+                **stamp,
             )
         else:
-            return self.state.out_template
+            return replace(self.state.out_template, **stamp)
 
 
 class SLDA(BaseTransformerUnit[SLDASettings, AxisArray, ClassifierMessage, SLDATransformer]):

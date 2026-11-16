@@ -10,7 +10,8 @@ from ezmsg.baseproc import (
     BaseAdaptiveTransformerUnit,
     processor_state,
 )
-from ezmsg.util.messages.axisarray import AxisArray
+from ezmsg.sigproc.util.segment import ConfigChain
+from ezmsg.util.messages.axisarray import AxisArray, compute_config_id
 from ezmsg.util.messages.util import replace
 
 from .._optional import missing_extra
@@ -67,6 +68,8 @@ class SklearnModelSettings(ez.Settings):
 class SklearnModelState:
     model: typing.Any = None
     chan_ax: AxisArray.CoordinateAxis | None = None
+    configs: ConfigChain | None = None
+    """Derives the output's config_id from the input's and ``chan_ax``."""
 
 
 class SklearnModelProcessor(BaseAdaptiveTransformer[SklearnModelSettings, AxisArray, AxisArray, SklearnModelState]):
@@ -125,12 +128,22 @@ class SklearnModelProcessor(BaseAdaptiveTransformer[SklearnModelSettings, AxisAr
         else:
             # No checkpoint, initialize from scratch
             self._init_model()
+        # Rebuilt from the new model's first output.
+        self._state.chan_ax = None
+
+    def _hash_message(self, message: AxisArray) -> int:
+        # The model is built for a number of input features; channel labels, key and dtype do not matter to it.
+        return message.data.shape[message.get_axis_idx("ch")]
+
+    def _reset_segment(self, message: AxisArray) -> None:
+        # All state is the (possibly trained) model, which a gap in the data does not invalidate.
+        pass
 
     def partial_fit(self, message: AxisArray) -> None:
         X = message.data
         y = message.attrs["trigger"].value
-        if self._state.model is None:
-            self._reset_state(message)
+        # Reset on a new feature count, exactly as for a signal message (so the first call keeps this fit).
+        self._prepare_state(message)
         if hasattr(self._state.model, "partial_fit"):
             kwargs = {}
             if self.settings.partial_fit_classes is not None:
@@ -157,19 +170,19 @@ class SklearnModelProcessor(BaseAdaptiveTransformer[SklearnModelSettings, AxisAr
             raise NotImplementedError("Model does not support partial_fit or learn_many")
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
-        if self._state.model is None:
-            dummy_msg = AxisArray(
-                data=X,
-                dims=["time", "ch"],
-                axes={
-                    "time": AxisArray.TimeAxis(fs=1.0),
-                    "ch": AxisArray.CoordinateAxis(
-                        data=np.array([f"ch_{i}" for i in range(X.shape[1])]),
-                        dims=["ch"],
-                    ),
-                },
-            )
-            self._reset_state(dummy_msg)
+        dummy_msg = AxisArray(
+            data=X,
+            dims=["time", "ch"],
+            axes={
+                "time": AxisArray.TimeAxis(fs=1.0),
+                "ch": AxisArray.CoordinateAxis(
+                    data=np.array([f"ch_{i}" for i in range(X.shape[1])]),
+                    dims=["ch"],
+                ),
+            },
+        )
+        # Reset on a new feature count, exactly as for a signal message (so the first call keeps this fit).
+        self._prepare_state(replace(dummy_msg, config_id=compute_config_id(dummy_msg)))
         if hasattr(self._state.model, "fit"):
             self._state.model.fit(X, y)
         elif hasattr(self._state.model, "learn_many"):
@@ -198,7 +211,12 @@ class SklearnModelProcessor(BaseAdaptiveTransformer[SklearnModelSettings, AxisAr
             if expected != n_input:
                 raise ValueError(f"Model expects {expected} features, but got {n_input}")
 
-        if self.settings.predict_method == PredictMethod.PREDICT_PROBA:
+        if X.shape[0] == 0:
+            # No samples (e.g. an end-of-stream marker): nothing to predict, and models refuse to.
+            if self._state.chan_ax is None:
+                return None
+            y_pred = np.zeros((0, self._state.chan_ax.data.shape[0]))
+        elif self.settings.predict_method == PredictMethod.PREDICT_PROBA:
             if hasattr(self._state.model, "predict_proba"):
                 y_pred = np.asarray(self._state.model.predict_proba(X))
             elif hasattr(self._state.model, "predict_proba_many"):  # River classifiers
@@ -237,11 +255,13 @@ class SklearnModelProcessor(BaseAdaptiveTransformer[SklearnModelSettings, AxisAr
             else:
                 chan_labels = np.arange(output_shape[1])
             self._state.chan_ax = with_fingerprint(AxisArray.CoordinateAxis(data=chan_labels, dims=["ch"]))
+            self._state.configs = ConfigChain(self._state.chan_ax.fingerprint, y_pred.dtype.str)
 
         return replace(
             message,
             data=y_pred,
             axes={**message.axes, "ch": self._state.chan_ax},
+            config_id=self._state.configs.update(message.config_id),
         )
 
 

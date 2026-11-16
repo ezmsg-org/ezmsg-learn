@@ -104,9 +104,11 @@ class IncrementalDecompTransformer(CompositeProcessor[IncrementalDecompSettings,
 
         return {"decomp": decomp}
 
-    def _partial_fit_windowed(self, train_msg: AxisArray) -> None:
+    def _partial_fit_windowed(self, train_msg: AxisArray, config_id: int) -> None:
         """
         Helper function to do the partial_fit on the windowed message.
+
+        ``config_id`` is that of the message the windows were cut from: each slice has its layout.
         """
         if np.prod(train_msg.data.shape) > 0:
             # Windowing created a new "win" axis, but we don't actually want to use that
@@ -132,6 +134,7 @@ class IncrementalDecompTransformer(CompositeProcessor[IncrementalDecompSettings,
                         ),
                     },
                     stream_dim="time",
+                    config_id=config_id,
                 )
                 self._procs["decomp"].partial_fit(_msg)
 
@@ -148,7 +151,7 @@ class IncrementalDecompTransformer(CompositeProcessor[IncrementalDecompSettings,
             self._procs["decomp"].partial_fit(message)
         elif "windowing" in self._procs:
             state["windowing"], train_msg = self._procs["windowing"].stateful_op(state.get("windowing", None), message)
-            self._partial_fit_windowed(train_msg)
+            self._partial_fit_windowed(train_msg, message.config_id)
 
         # Process the incoming message
         state["decomp"], result = self._procs["decomp"].stateful_op(state.get("decomp", None), message)
@@ -168,7 +171,7 @@ class IncrementalDecompTransformer(CompositeProcessor[IncrementalDecompSettings,
         elif "windowing" in self._procs:
             # If windowing is enabled, extract training samples and perform partial_fit
             train_msg = await self._procs["windowing"].__acall__(message)
-            self._partial_fit_windowed(train_msg)  # Non async
+            self._partial_fit_windowed(train_msg, message.config_id)  # Non async
 
         # Process the incoming message
         decomp_result = await self._procs["decomp"].__acall__(message)
@@ -183,7 +186,7 @@ class IncrementalDecompTransformer(CompositeProcessor[IncrementalDecompSettings,
         elif "windowing" in self._procs:
             # If windowing is enabled, extract training samples and perform partial_fit
             train_msg = self._procs["windowing"](message)
-            self._partial_fit_windowed(train_msg)
+            self._partial_fit_windowed(train_msg, message.config_id)
 
         # Process the incoming message
         decomp_result = self._procs["decomp"](message)

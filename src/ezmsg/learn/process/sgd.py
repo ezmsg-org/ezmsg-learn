@@ -8,6 +8,7 @@ from ezmsg.baseproc import (
     processor_state,
     resolve_stream_dim,
 )
+from ezmsg.sigproc.util.segment import ConfigChain
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
@@ -33,6 +34,8 @@ class SGDDecoderSettings(ez.Settings):
 class SGDDecoderState:
     model: typing.Any = None
     b_first_train: bool = True
+    configs: ConfigChain | None = None
+    """Derives the output's config_id from the input's and the model's labels."""
 
 
 class SGDDecoderTransformer(BaseAdaptiveTransformer[SGDDecoderSettings, AxisArray, ClassifierMessage, SGDDecoderState]):
@@ -89,20 +92,31 @@ class SGDDecoderTransformer(BaseAdaptiveTransformer[SGDDecoderSettings, AxisArra
 
     def _reset_state(self, message: AxisArray) -> None:
         self._state.model = self._refreshed_model()
+        self._state.b_first_train = True
+        self._state.configs = ConfigChain("labels", tuple(self._state.model.class_weight or ()))
+
+    def _reset_segment(self, message: AxisArray) -> None:
+        # All state is the trained model, which a gap in the data does not invalidate.
+        pass
 
     def _process(self, message: AxisArray) -> ClassifierMessage | None:
-        if self._state.model is None or not message.data.size:
+        if self._state.model is None:
             return None
         if np.any(np.isnan(message.data)):
             return None
-        try:
-            chunk = resolve_stream_dim(message, self.STREAMING_DIMS)
-            chunk_idx = message.get_axis_idx(chunk)
-            data = message.data if chunk_idx == 0 else np.moveaxis(message.data, chunk_idx, 0)
-            X = data.reshape((data.shape[0], -1))
-            result = self._state.model._predict_proba_lr(X)
-        except NotFittedError:
-            return None
+        chunk = resolve_stream_dim(message, self.STREAMING_DIMS)
+        chunk_idx = message.get_axis_idx(chunk)
+        labels = list(self._state.model.class_weight.keys())
+        if message.data.shape[chunk_idx] == 0:
+            # No samples (e.g. an end-of-stream marker): pass on an empty output.
+            result = np.zeros((0, len(labels)))
+        else:
+            try:
+                data = message.data if chunk_idx == 0 else np.moveaxis(message.data, chunk_idx, 0)
+                X = data.reshape((data.shape[0], -1))
+                result = self._state.model._predict_proba_lr(X)
+            except NotFittedError:
+                return None
         out_axes = {}
         if chunk in message.axes:
             out_axes[chunk] = replace(
@@ -113,8 +127,11 @@ class SGDDecoderTransformer(BaseAdaptiveTransformer[SGDDecoderSettings, AxisArra
             data=result,
             dims=[chunk, "labels"],
             axes=out_axes,
-            labels=list(self._state.model.class_weight.keys()),
+            labels=labels,
             key=message.key,
+            stream_dim=chunk,
+            segment=message.segment,
+            config_id=self._state.configs.update(message.config_id),
         )
 
     def partial_fit(self, message: AxisArray) -> None:

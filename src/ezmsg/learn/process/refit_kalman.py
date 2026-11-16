@@ -19,6 +19,7 @@ from ezmsg.baseproc import (
     processor_state,
 )
 from ezmsg.sigproc.util.array import array_device, xp_create
+from ezmsg.sigproc.util.segment import ConfigJoin
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
@@ -60,6 +61,9 @@ class RefitKalmanFilterState:
 
     P: object | None = None  # Array API; namespace matches source data.
     """Current state covariance matrix (n_states x n_states)."""
+
+    configs: ConfigJoin | None = None
+    """Derives the output's config_id from the input's and the state dimension."""
 
     buffer_neural: list | None = None
     """Buffer for storing neural activity data for refitting."""
@@ -284,6 +288,8 @@ class RefitKalmanFilterProcessor(
         state_dim = self._state.model.A_state_transition_matrix.shape[0]
         if self._state.x is None:
             self._state.x = xp_create(xp.zeros, (state_dim,), dtype=xp.float64, device=dev)
+        if self._state.configs is None:
+            self._state.configs = ConfigJoin()
 
         filtered_data = xp_create(
             xp.zeros,
@@ -310,6 +316,7 @@ class RefitKalmanFilterProcessor(
             data=filtered_data,
             dims=["time", "state"],
             key=f"{message.key}_filtered" if hasattr(message, "key") else "filtered",
+            config_id=self._state.configs.update(message.config_id, own=("state", state_dim)),
         )
 
     def partial_fit(self, message: AxisArray) -> None:

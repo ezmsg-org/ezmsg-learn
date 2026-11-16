@@ -175,6 +175,10 @@ class SelfSupervisedRegressionTransformer(
             self._state.weights = weights
             self._on_weights_updated()
 
+    def _reset_segment(self, message: AxisArray) -> None:
+        # The accumulated covariance and weights are long-run statistics; a gap does not date them.
+        pass
+
     # -- group resolution / validation ---------------------------------------
 
     def _static_channel_groups(self) -> list[np.ndarray] | None:
@@ -353,11 +357,8 @@ class SelfSupervisedRegressionTransformer(
         if self.settings.check_finite and not xp.all(xp.isfinite(message.data)):
             return
 
-        # Hash check / state reset
-        msg_hash = self._hash_message(message)
-        if self._hash != msg_hash:
-            self._reset_state(message)
-            self._hash = msg_hash
+        # Reset on a new configuration, exactly as for a signal message.
+        self._prepare_state(message)
 
         axis = self.settings.axis or resolve_feature_dim(message)
         axis_idx = message.get_axis_idx(axis)

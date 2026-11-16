@@ -21,6 +21,7 @@ from ezmsg.baseproc import (
     warn_axis_deprecated,
 )
 from ezmsg.sigproc.resample import ResampleSettings, ResampleUnit
+from ezmsg.sigproc.util.segment import ConfigJoin
 from ezmsg.sigproc.window import Window, WindowSettings
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
@@ -70,6 +71,8 @@ class DecodeOutputAdapterSettings(ez.Settings):
 @processor_state
 class DecodeOutputAdapterState:
     ch_axis: AxisArray.CoordinateAxis | None = None
+    configs: ConfigJoin | None = None
+    """Derives the output's config_id from the input's and the output channel axis."""
 
 
 class DecodeOutputAdapterProcessor(
@@ -94,10 +97,11 @@ class DecodeOutputAdapterProcessor(
             self.state.ch_axis = with_fingerprint(
                 AxisArray.CoordinateAxis(data=np.asarray(self.settings.output_labels), dims=["ch"])
             )
+        self.state.configs = ConfigJoin()
 
     def _process(self, message: AxisArray) -> AxisArray | None:
         data = np.asarray(message.data, dtype=float)
-        if data.size == 0:
+        if data.size == 0 and data.ndim < 2:
             return None
 
         if self.settings.output_labels is not None:
@@ -105,7 +109,9 @@ class DecodeOutputAdapterProcessor(
             data = data.reshape((-1, n_outputs))
             ch_axis = self.state.ch_axis
         else:
-            data = data.reshape((data.shape[0], -1)) if data.ndim > 1 else data.reshape((1, -1))
+            # An explicit width rather than -1, so that an empty (end-of-stream) message reshapes too.
+            width = int(np.prod(data.shape[1:]))
+            data = data.reshape((data.shape[0], width)) if data.ndim > 1 else data.reshape((1, -1))
             ch_axis = with_fingerprint(
                 AxisArray.CoordinateAxis(data=np.asarray([f"ch{i}" for i in range(data.shape[-1])]), dims=["ch"])
             )
@@ -127,6 +133,8 @@ class DecodeOutputAdapterProcessor(
             dims=["time", "ch"],
             axes={"ch": ch_axis, "time": message.axes["time"]},
             key=f"{message.key}_pred",
+            stream_dim="time",
+            config_id=self.state.configs.update(message.config_id, own=(ch_axis.fingerprint,)),
         )
 
 
