@@ -98,7 +98,8 @@ def test_refit_kalman_system():
         checkpoint_file = f.name
 
     settings = RefitKalmanSystemSettings(
-        source_settings=NoiseSrcSettings(fs=fs, n_ch=1, n_time=block_size, dispatch_rate=duration),
+        # One channel per row of H: the processor now rejects a measurement the model is not sized for.
+        source_settings=NoiseSrcSettings(fs=fs, n_ch=2, n_time=block_size, dispatch_rate=duration),
         unit_settings=RefitKalmanFilterSettings(
             checkpoint_path=checkpoint_file,
             steady_state=True,

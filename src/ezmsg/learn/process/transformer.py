@@ -59,6 +59,9 @@ class TransformerProcessor(
     TorchProcessorMixin,
     ModelInitMixin,
 ):
+    # The mixin follows the base class in the MRO, so its hash must be named here to take effect.
+    _hash_message = TorchProcessorMixin._hash_message
+
     @property
     def has_decoder(self) -> bool:
         return self.settings.model_kwargs.get("decoder_layers", 0) > 0

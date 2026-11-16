@@ -41,6 +41,7 @@ namespace so that GPU-backed arrays benefit from device-side computation.
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import typing
 from abc import abstractmethod
@@ -178,6 +179,16 @@ class SelfSupervisedRegressionTransformer(
     def _reset_segment(self, message: AxisArray) -> None:
         # The accumulated covariance and weights are long-run statistics; a gap does not date them.
         pass
+
+    def _hash_message(self, message: AxisArray) -> int:
+        # The covariance is sized to the channel count and accumulated in the input's array backend.
+        # Labels matter only where the groups are read from them (a field-name or callable spec).
+        axis = self.settings.axis or resolve_feature_dim(message)
+        labels = None
+        if self.settings.channel_groups is not None and self._static_channel_groups() is None:
+            labels = getattr(message.axes.get(axis), "fingerprint", None)
+        backend = type(message.data).__module__.partition(".")[0]
+        return hash((message.data.shape[message.get_axis_idx(axis)], backend, labels))
 
     # -- group resolution / validation ---------------------------------------
 
@@ -508,6 +519,8 @@ class LRRTransformer(
         # forever. _process builds it instead, from the latest weights.
         if self._state.affine is not None:
             self._state.affine.set_weights(effective)
+            # Keep its settings in step too, so that its own reset (on a new config_id) rebuilds from this fit.
+            self._state.affine.settings = dataclasses.replace(self._state.affine.settings, weights=effective)
 
     # -- transform -----------------------------------------------------------
 

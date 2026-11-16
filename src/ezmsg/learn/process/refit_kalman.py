@@ -7,6 +7,7 @@
     is stacked via ``xp.stack``.
 """
 
+import math
 import pickle
 from pathlib import Path
 
@@ -244,6 +245,13 @@ class RefitKalmanFilterProcessor(
         if self._state.model.A_state_transition_matrix is not None:
             state_dim = self._state.model.A_state_transition_matrix.shape[0]
 
+        H = self._state.model.H_observation_matrix
+        if message is not None and H is not None and H.shape[0] != math.prod(message.data.shape[1:]):
+            # The observation model cannot be rebuilt for other features without refitting.
+            raise ValueError(
+                f"Kalman model expects {H.shape[0]} measurement features, but got {math.prod(message.data.shape[1:])}"
+            )
+
         # Derive xp/dev from message data when available; default to numpy.
         if message is not None:
             xp = get_namespace(message.data)
@@ -259,6 +267,11 @@ class RefitKalmanFilterProcessor(
         self._state.buffer_cursor_positions = []
         self._state.buffer_target_positions = []
         self._state.buffer_hold_flags = []
+
+    def _hash_message(self, message: AxisArray) -> int:
+        # Measurement features per sample (the observation model is sized to them; samples run along
+        # axis 0, as _process reads them), and the array backend, because x and P live in it.
+        return hash((math.prod(message.data.shape[1:]), type(message.data).__module__.partition(".")[0]))
 
     def _process(self, message: AxisArray) -> AxisArray:
         """
