@@ -13,6 +13,7 @@ from ezmsg.learn.process.adaptive_linear_regressor import (
     AdaptiveLinearRegressorTransformer,
 )
 from ezmsg.learn.process.rnn import RNNProcessor, RNNSettings
+from ezmsg.learn.process.seqseqsampler import SeqSeqSampler
 from ezmsg.learn.process.sgd import SGDDecoderSettings, SGDDecoderTransformer
 from ezmsg.learn.process.sklearn import SklearnModelProcessor, SklearnModelSettings
 from ezmsg.learn.process.ssr import LRRSettings, LRRTransformer
@@ -168,6 +169,18 @@ def test_incremental_decomp_windowed_training_does_not_reset_decomp():
     for _ in range(5):
         proc(_signal(rng))
     assert len(resets) == 1
+
+
+def test_seqseqsampler_restarts_buffer_on_new_segment():
+    rng = np.random.default_rng(9)
+    sampler = SeqSeqSampler()
+    msg = _signal(rng)
+    sampler._update_buffer(msg, "signal")
+    sampler._update_buffer(end_of_stream(msg), "signal")  # empty: must not raise
+    assert sampler._signal_buffer.data.shape[0] == 0
+    sampler._update_buffer(_signal(rng, segment=2), "signal")
+    assert sampler._signal_buffer.segment == 2
+    assert sampler._signal_buffer.data.shape[0] == 50
 
 
 def _trained(name, rng):
