@@ -71,6 +71,10 @@ class RNNProcessor(
         batch_size = 1 if message.data.ndim == 2 else message.data.shape[0]
         self.reset_hidden(batch_size)
 
+    def _reset_segment(self, message: AxisArray) -> None:
+        # Keep the (possibly trained) model; the hidden state describes samples before the gap.
+        self.reset_hidden(1 if message.data.ndim == 2 else message.data.shape[0])
+
     def _maybe_reset_state(self, message: AxisArray, batch_size: int) -> bool:
         preserve_state = self.settings.preserve_state_across_windows
         if preserve_state == "auto":
@@ -107,6 +111,19 @@ class RNNProcessor(
         return preserve_state
 
     def _process(self, message: AxisArray) -> list[AxisArray]:
+        if 0 in message.data.shape:
+            # No samples (e.g. an end-of-stream marker): the RNN cannot run on an empty sequence.
+            dtype = np.float32 if self.settings.single_precision else np.float64
+            return [
+                replace(
+                    message,
+                    data=np.zeros((*message.data.shape[:-1], ax.data.shape[0]), dtype=dtype),
+                    axes={**message.axes, "ch": ax},
+                    key=key,
+                    config_id=self._state.configs[key].update(message.config_id),
+                )
+                for key, ax in self._state.chan_ax.items()
+            ]
         x = message.data
         if not isinstance(x, torch.Tensor):
             x = torch.tensor(
@@ -147,6 +164,7 @@ class RNNProcessor(
                 data=out,
                 axes={**message.axes, "ch": self._state.chan_ax[key]},
                 key=key,
+                config_id=self._state.configs[key].update(message.config_id),
             )
             for key, out in y_data.items()
         ]

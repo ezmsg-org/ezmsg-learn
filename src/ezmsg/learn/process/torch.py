@@ -11,6 +11,7 @@ from ezmsg.baseproc import (
     processor_state,
 )
 from ezmsg.baseproc.util.profile import profile_subpub
+from ezmsg.sigproc.util.segment import ConfigChain
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
@@ -97,6 +98,8 @@ class TorchSimpleState:
     model: torch.nn.Module | None = None
     device: torch.device | None = None
     chan_ax: dict[str, AxisArray.CoordinateAxis] | None = None
+    configs: dict[str, ConfigChain] | None = None
+    """Per output head: derives its config_id from the input's and the head's channel axis."""
 
 
 class TorchModelState(TorchSimpleState):
@@ -198,6 +201,7 @@ class TorchProcessorMixin:
                         "ch": self._state.chan_ax[key],
                     },
                     key=key,
+                    config_id=self._state.configs[key].update(message.config_id),
                 )
                 for key, value in output.items()
             ]
@@ -211,6 +215,7 @@ class TorchProcessorMixin:
                     **message.axes,
                     "ch": self._state.chan_ax["output"],
                 },
+                config_id=self._state.configs["output"].update(message.config_id),
             )
         ]
 
@@ -252,6 +257,10 @@ class TorchProcessorMixin:
             )
             for head, size in output_sizes.items()
         }
+        self._state.configs = {
+            head: ConfigChain(head, axis.fingerprint, self.settings.single_precision)
+            for head, axis in self._state.chan_ax.items()
+        }
 
 
 class TorchSimpleProcessor(
@@ -262,6 +271,10 @@ class TorchSimpleProcessor(
     def _reset_state(self, message: AxisArray) -> None:
         model_kwargs = dict(self.settings.model_kwargs or {})
         self._common_reset_state(message, model_kwargs)
+
+    def _reset_segment(self, message: AxisArray) -> None:
+        # The model is stateless across messages; a gap does not call for reloading it.
+        pass
 
     def _process(self, message: AxisArray) -> list[AxisArray]:
         """Process the input message and return the output messages."""
@@ -297,6 +310,10 @@ class TorchModelProcessor(
         self._common_reset_state(message, model_kwargs)
         self._init_optimizer()
         self._validate_loss_keys(list(self._state.chan_ax.keys()))
+
+    def _reset_segment(self, message: AxisArray) -> None:
+        # All state is the (possibly trained) model and its optimizer; a gap does not invalidate them.
+        pass
 
     def _process(self, message: AxisArray) -> list[AxisArray]:
         return self._common_process(message)

@@ -19,7 +19,8 @@ from ezmsg.baseproc import (
     BaseAdaptiveTransformerUnit,
     processor_state,
 )
-from ezmsg.util.messages.axisarray import AxisArray, replace
+from ezmsg.sigproc.util.segment import ConfigChain
+from ezmsg.util.messages.axisarray import AxisArray, compute_config_id, replace
 
 from .._optional import missing_extra
 from ..util import AdaptiveLinearRegressor, RegressorType, get_regressor, with_fingerprint
@@ -48,6 +49,8 @@ class AdaptiveLinearRegressorState:
         | sklearn.base.RegressorMixin
         | None
     ) = None
+    configs: ConfigChain | None = None
+    """Derives the output's config_id from the input's and ``template``; None when ``template`` changes."""
 
 
 def _normalize_axis_label(label):
@@ -214,6 +217,7 @@ class AdaptiveLinearRegressorTransformer(
             self.state.model.partial_fit(X_np, message.attrs["trigger"].value.data)
 
         self.state.template = _prediction_template(message.attrs["trigger"].value)
+        self.state.configs = None
 
     def _process(self, message: AxisArray) -> AxisArray | None:
         if self.state.model is None:
@@ -250,12 +254,17 @@ class AdaptiveLinearRegressorTransformer(
             else:
                 # sklearn path: needs numpy
                 data_np = np.asarray(message.data) if not is_numpy_array(message.data) else message.data
-                preds = self.state.model.predict(data_np)
-            preds = preds.reshape((len(preds), -1))
+                # sklearn will not predict for no samples (e.g. an end-of-stream marker); its regressors are 1-D.
+                preds = self.state.model.predict(data_np) if len(data_np) else np.zeros((0,))
+            if preds.ndim == 1:
+                preds = preds[:, None]
             template = self.state.template
             if template is None:
                 template = _prediction_template_from_signal(message, self._prediction_labels(preds.shape[1]))
                 self.state.template = template
+                self.state.configs = None
+            if self.state.configs is None:
+                self.state.configs = ConfigChain(compute_config_id(template))
             return replace(
                 template,
                 data=preds,
@@ -263,6 +272,9 @@ class AdaptiveLinearRegressorTransformer(
                     **template.axes,
                     "time": message.axes["time"],
                 },
+                stream_dim="time",
+                segment=message.segment,
+                config_id=self.state.configs.update(message.config_id),
             )
 
 

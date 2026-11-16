@@ -7,7 +7,8 @@ from ezmsg.baseproc import (
     BaseAdaptiveTransformerUnit,
     processor_state,
 )
-from ezmsg.util.messages.axisarray import AxisArray, replace
+from ezmsg.sigproc.util.segment import ConfigChain
+from ezmsg.util.messages.axisarray import AxisArray, compute_config_id, replace
 
 from .._optional import missing_extra
 from ..util import RegressorType, StaticLinearRegressor, get_regressor
@@ -28,6 +29,8 @@ class LinearRegressorSettings(ez.Settings):
 class LinearRegressorState:
     template: AxisArray | None = None
     model: LinearModel | None = None
+    configs: ConfigChain | None = None
+    """Derives the output's config_id from the input's and ``template``."""
 
 
 class LinearRegressorTransformer(
@@ -71,11 +74,16 @@ class LinearRegressorTransformer(
             data=np.array([[]]),
             key=message.attrs["trigger"].value.key + "_pred",
         )
+        self.state.configs = ConfigChain(compute_config_id(self.state.template))
 
     def _process(self, message: AxisArray) -> AxisArray:
         if self.state.template is None:
             return AxisArray(np.array([[]]), dims=["time", "ch"])
-        preds = self.state.model.predict(message.data)
+        if message.data.shape[0]:
+            preds = self.state.model.predict(message.data)
+        else:
+            # sklearn will not predict for no samples (e.g. an end-of-stream marker).
+            preds = np.zeros((0, *np.shape(self.state.model.coef_)[:-1]))
         return replace(
             self.state.template,
             data=preds,
@@ -86,6 +94,9 @@ class LinearRegressorTransformer(
                     offset=message.axes["time"].offset,
                 ),
             },
+            stream_dim="time",
+            segment=message.segment,
+            config_id=self.state.configs.update(message.config_id),
         )
 
 

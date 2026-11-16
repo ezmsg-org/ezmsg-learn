@@ -20,6 +20,7 @@ from ezmsg.baseproc import (
     resolve_stream_dim,
     warn_axis_deprecated,
 )
+from ezmsg.sigproc.util.segment import ConfigChain
 from ezmsg.util.messages.axisarray import AxisArray, replace
 
 from .._optional import missing_extra
@@ -59,6 +60,8 @@ class AdaptiveDecompState:
     template: AxisArray | None = None
     axis_groups: tuple[str, list[str], list[str]] | None = None
     estimator: typing.Any = None
+    configs: ConfigChain | None = None
+    """Derives the output's config_id from the input's and the decomposed layout."""
 
 
 EstimatorType = typing.TypeVar("EstimatorType", bound=typing.Union[IncrementalPCA, MiniBatchNMF])
@@ -156,14 +159,16 @@ class AdaptiveDecompTransformer(
             dims=out_dims,
             axes=out_axes,
         )
+        self._state.configs = ConfigChain(tuple(out_dims), out_axes[targ_ax_name].fingerprint)
 
     def _process(self, message: AxisArray) -> AxisArray:
         iter_axis, targ_axes, off_targ_axes = self._state.axis_groups
         ax_idx = message.get_axis_idx(iter_axis)
         in_dat = message.data
 
+        stamp = {"segment": message.segment, "config_id": self._state.configs.update(message.config_id)}
         if in_dat.shape[ax_idx] == 0:
-            return self._state.template
+            return replace(self._state.template, **stamp)
 
         xp = get_namespace(in_dat)
 
@@ -181,6 +186,7 @@ class AdaptiveDecompTransformer(
 
         replace_kwargs = {
             "axes": {**self._state.template.axes, iter_axis: message.axes[iter_axis]},
+            **stamp,
         }
 
         # Transform data — sklearn needs numpy
@@ -195,11 +201,8 @@ class AdaptiveDecompTransformer(
         return replace(self._state.template, **replace_kwargs)
 
     def partial_fit(self, message: AxisArray) -> None:
-        # Check if we need to reset state
-        msg_hash = self._hash_message(message)
-        if self._hash != msg_hash:
-            self._reset_state(message)
-            self._hash = msg_hash
+        # Reset on a new configuration or segment, exactly as for a signal message.
+        self._prepare_state(message)
 
         iter_axis, targ_axes, off_targ_axes = self._state.axis_groups
         ax_idx = message.get_axis_idx(iter_axis)

@@ -14,8 +14,8 @@ dependencies = [
     # left to the transitive requirement: uv only enables pre-releases for a
     # package named with a pre-release marker in *this* file.
     "ezmsg>=3.10.0b5",
-    "ezmsg-baseproc>=1.15.0",
-    "ezmsg-sigproc>=3.10.0",  # Window/Resample must resolve stream_dim from axis=None
+    "ezmsg-baseproc>=1.17.0",
+    "ezmsg-sigproc>=3.13.0",  # AffineTransform keeps its weights across a segment; config_id chaining
     "numpy",
     "scipy",
     "array-api-compat",

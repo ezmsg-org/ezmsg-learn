@@ -10,6 +10,7 @@ from ezmsg.baseproc import (
     BaseAdaptiveTransformerUnit,
     processor_state,
 )
+from ezmsg.sigproc.util.segment import ConfigChain
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
@@ -67,6 +68,8 @@ class SklearnModelSettings(ez.Settings):
 class SklearnModelState:
     model: typing.Any = None
     chan_ax: AxisArray.CoordinateAxis | None = None
+    configs: ConfigChain | None = None
+    """Derives the output's config_id from the input's and ``chan_ax``."""
 
 
 class SklearnModelProcessor(BaseAdaptiveTransformer[SklearnModelSettings, AxisArray, AxisArray, SklearnModelState]):
@@ -125,6 +128,10 @@ class SklearnModelProcessor(BaseAdaptiveTransformer[SklearnModelSettings, AxisAr
         else:
             # No checkpoint, initialize from scratch
             self._init_model()
+
+    def _reset_segment(self, message: AxisArray) -> None:
+        # All state is the (possibly trained) model, which a gap in the data does not invalidate.
+        pass
 
     def partial_fit(self, message: AxisArray) -> None:
         X = message.data
@@ -198,7 +205,12 @@ class SklearnModelProcessor(BaseAdaptiveTransformer[SklearnModelSettings, AxisAr
             if expected != n_input:
                 raise ValueError(f"Model expects {expected} features, but got {n_input}")
 
-        if self.settings.predict_method == PredictMethod.PREDICT_PROBA:
+        if X.shape[0] == 0:
+            # No samples (e.g. an end-of-stream marker): nothing to predict, and models refuse to.
+            if self._state.chan_ax is None:
+                return None
+            y_pred = np.zeros((0, self._state.chan_ax.data.shape[0]))
+        elif self.settings.predict_method == PredictMethod.PREDICT_PROBA:
             if hasattr(self._state.model, "predict_proba"):
                 y_pred = np.asarray(self._state.model.predict_proba(X))
             elif hasattr(self._state.model, "predict_proba_many"):  # River classifiers
@@ -237,11 +249,13 @@ class SklearnModelProcessor(BaseAdaptiveTransformer[SklearnModelSettings, AxisAr
             else:
                 chan_labels = np.arange(output_shape[1])
             self._state.chan_ax = with_fingerprint(AxisArray.CoordinateAxis(data=chan_labels, dims=["ch"]))
+            self._state.configs = ConfigChain(self._state.chan_ax.fingerprint, y_pred.dtype.str)
 
         return replace(
             message,
             data=y_pred,
             axes={**message.axes, "ch": self._state.chan_ax},
+            config_id=self._state.configs.update(message.config_id),
         )
 
 

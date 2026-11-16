@@ -7,6 +7,7 @@ from ezmsg.baseproc import (
     BaseAdaptiveTransformerUnit,
     processor_state,
 )
+from ezmsg.sigproc.util.segment import ConfigChain
 from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
@@ -63,9 +64,15 @@ class MLPState:
     scheduler: torch.optim.lr_scheduler.LRScheduler | None = None
     template: AxisArray | None = None
     device: object | None = None
+    configs: ConfigChain | None = None
+    """Derives the output's config_id from the input's and the output channel axis."""
 
 
 class MLPProcessor(BaseAdaptiveTransformer[MLPSettings, AxisArray, AxisArray, MLPState]):
+    def _reset_segment(self, message: AxisArray) -> None:
+        # All state is the (possibly trained) model and its optimizer; a gap does not invalidate them.
+        pass
+
     def _reset_state(self, message: AxisArray) -> None:
         # Create the model
         self._state.model = MLP(
@@ -116,6 +123,7 @@ class MLPProcessor(BaseAdaptiveTransformer[MLPSettings, AxisArray, AxisArray, ML
         self._state.chan_ax = with_fingerprint(
             AxisArray.CoordinateAxis(data=np.array([f"ch{_}" for _ in range(n_output_channels)]), dims=["ch"])
         )
+        self._state.configs = ConfigChain(self._state.chan_ax.fingerprint, self.settings.single_precision)
 
     def save_checkpoint(self, path: str) -> None:
         """Save the current model state to a checkpoint file.
@@ -173,6 +181,7 @@ class MLPProcessor(BaseAdaptiveTransformer[MLPSettings, AxisArray, AxisArray, ML
                 **message.axes,
                 "ch": self.state.chan_ax,
             },
+            config_id=self.state.configs.update(message.config_id),
         )
 
 

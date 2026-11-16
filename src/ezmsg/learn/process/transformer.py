@@ -87,6 +87,10 @@ class TransformerProcessor(
             else list(self._state.chan_ax.keys())[0]
         )
 
+    def _reset_segment(self, message: AxisArray) -> None:
+        # Keep the (possibly trained) model; the decoder context describes samples before the gap.
+        self.reset_cache()
+
     def _process(self, message: AxisArray) -> list[AxisArray]:
         # If has_decoder is False, fallback to regular processing
         if not self.has_decoder:
@@ -117,6 +121,7 @@ class TransformerProcessor(
                     data=out.squeeze(0).cpu().numpy(),
                     axes={**message.axes, "ch": self._state.chan_ax[key]},
                     key=key,
+                    config_id=self._state.configs[key].update(message.config_id),
                 )
                 for key, out in y_pred.items()
             ]
@@ -126,6 +131,7 @@ class TransformerProcessor(
                     message,
                     data=y_pred.squeeze(0).cpu().numpy(),
                     axes={**message.axes, "ch": self._state.chan_ax["output"]},
+                    config_id=self._state.configs["output"].update(message.config_id),
                 )
             ]
 
