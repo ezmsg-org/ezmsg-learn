@@ -236,6 +236,24 @@ def test_sgd_alternation_relabel_dtype_and_feature_count():
     assert proc(_windows(n_ch=3)).data.shape == (2, 2)
 
 
+def test_kalman_segment_change_restarts_trajectory_keeps_model_and_refit_log(tmp_path):
+    proc = _kalman(tmp_path)
+    msg = _msg()
+    proc._prepare_state(msg)
+    model = proc.state.model
+    P0 = np.array(model.P_state_covariance)
+    proc._process(msg)
+    proc.log_for_refit(msg)
+    assert np.any(proc.state.x != 0)
+    assert not np.allclose(model.P_state_covariance, P0)
+
+    proc._prepare_state(replace(msg, segment=1))
+    assert proc.state.model is model
+    assert len(proc.state.buffer_neural) == 1 and len(proc.state.buffer_state) == 1
+    np.testing.assert_array_equal(proc.state.x, 0)
+    np.testing.assert_allclose(model.P_state_covariance, P0)
+
+
 def _count_resets(proc):
     calls = []
     reset = proc._reset_state
