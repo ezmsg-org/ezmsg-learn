@@ -1,3 +1,4 @@
+import math
 import typing
 
 import ezmsg.core as ez
@@ -5,6 +6,7 @@ import numpy as np
 from ezmsg.baseproc import (
     BaseAdaptiveTransformer,
     BaseAdaptiveTransformerUnit,
+    is_sample_message,
     processor_state,
     resolve_stream_dim,
 )
@@ -13,7 +15,7 @@ from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
 from .._optional import missing_extra
-from ..util import ClassifierMessage
+from ..util import ClassifierMessage, feature_count
 
 try:
     from sklearn.exceptions import NotFittedError
@@ -74,21 +76,18 @@ class SGDDecoderTransformer(BaseAdaptiveTransformer[SGDDecoderSettings, AxisArra
         return model
 
     def _hash_message(self, message: AxisArray) -> int:
-        """Constant: inference must never rebuild the model.
+        """The number of features per sample: the only thing the model depends on.
 
-        The model's lifecycle belongs to `partial_fit`, which sets `_hash` to 0
-        itself once it has trained. Training samples arrive as
-        `(time, ch, freq)` and inference windows as `(win, time, ch, freq)`, so
-        any hash that reads the layout differs between the two and makes every
-        alternation throw the fitted model away -- which is what
-        `_refreshed_model()` below does.
-
-        This was previously inherited from ezmsg-baseproc's old default, which
-        returned a constant for everything. Now that the default keys on the
-        message layout, the assumption has to be stated here rather than
-        depended upon.
+        Training samples arrive as `(time, ch, freq)`, one sample per message, and
+        inference windows as `(win, time, ch, freq)`, a stack of samples along the
+        stream dimension. Any hash that read the layout would differ between the two
+        and make every alternation throw the fitted model away. Counted per sample,
+        both give `time * ch * freq`, so only a real change in the feature count
+        rebuilds the model (`_refreshed_model()` below).
         """
-        return 0
+        if is_sample_message(message):
+            return math.prod(message.data.shape)
+        return feature_count(message, resolve_stream_dim(message, self.STREAMING_DIMS))
 
     def _reset_state(self, message: AxisArray) -> None:
         self._state.model = self._refreshed_model()
@@ -135,9 +134,8 @@ class SGDDecoderTransformer(BaseAdaptiveTransformer[SGDDecoderSettings, AxisArra
         )
 
     def partial_fit(self, message: AxisArray) -> None:
-        if self._hash != 0:
-            self._reset_state(message)
-            self._hash = 0
+        # Reset on a new feature count, exactly as for a signal message.
+        self._prepare_state(message)
 
         if np.any(np.isnan(message.data)):
             return

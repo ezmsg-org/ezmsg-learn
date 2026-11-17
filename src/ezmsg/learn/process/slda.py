@@ -24,7 +24,7 @@ from ezmsg.util.messages.axisarray import AxisArray
 from ezmsg.util.messages.util import replace
 
 from .._optional import missing_extra
-from ..util import ClassifierMessage, with_fingerprint
+from ..util import ClassifierMessage, feature_count, with_fingerprint
 
 try:
     from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
@@ -62,6 +62,11 @@ class SLDATransformer(BaseStatefulTransformer[SLDASettings, AxisArray, Classifie
         # Nothing here depends on continuity: the classifier is loaded from file.
         pass
 
+    def _hash_message(self, message: AxisArray) -> int:
+        # The classifier is sized to the features per sample, counted across the dim samples run along.
+        axis = resolve_configured_stream_dim(self, message, self.settings.axis, legacy_default="time")
+        return hash((axis, feature_count(message, axis)))
+
     def _reset_state(self, message: AxisArray) -> None:
         self.state.axis = resolve_configured_stream_dim(self, message, self.settings.axis, legacy_default="time")
         if self.settings.settings_path[-4:] == ".mat":
@@ -93,6 +98,11 @@ class SLDATransformer(BaseStatefulTransformer[SLDASettings, AxisArray, Classifie
 
             with open(self.settings.settings_path, "rb") as f:
                 self.state.lda = pickle.load(f)
+            expected, n_features = self.state.lda.coef_.shape[-1], feature_count(message, self.state.axis)
+            if expected != n_features:
+                raise ValueError(
+                    f"LDA from {self.settings.settings_path} expects {expected} features, got {n_features}"
+                )
 
         # Create template ClassifierMessage using lda.classes_
         out_labels = self.state.lda.classes_.tolist()
@@ -119,7 +129,12 @@ class SLDATransformer(BaseStatefulTransformer[SLDASettings, AxisArray, Classifie
         # Move sample axis to front
         perm = (samp_ax_idx,) + tuple(i for i in range(message.data.ndim) if i != samp_ax_idx)
         X = xp.permute_dims(message.data, perm)
-        stamp = {"segment": message.segment, "config_id": self.state.configs.update(message.config_id)}
+        # Key and stream axis come from the message: a change in either does not reset the template.
+        stamp = {
+            "segment": message.segment,
+            "config_id": self.state.configs.update(message.config_id),
+            "key": message.key,
+        }
 
         if X.shape[0]:
             if isinstance(self.settings.settings_path, str) and self.settings.settings_path[-4:] == ".mat":
@@ -138,17 +153,10 @@ class SLDATransformer(BaseStatefulTransformer[SLDASettings, AxisArray, Classifie
                 X_np = X_np.reshape(X_np.shape[0], -1)
                 pred_probas = self.state.lda.predict_proba(X_np)
 
-            update_ax = self.state.out_template.axes[self.state.axis]
-            update_ax.offset = message.axes[self.state.axis].offset
-
             return replace(
                 self.state.out_template,
                 data=pred_probas,
-                axes={
-                    **self.state.out_template.axes,
-                    # `replace` will copy the minimal set of fields
-                    self.state.axis: replace(update_ax, offset=update_ax.offset),
-                },
+                axes={**self.state.out_template.axes, self.state.axis: message.axes[self.state.axis]},
                 **stamp,
             )
         else:

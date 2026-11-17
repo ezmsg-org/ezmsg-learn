@@ -73,6 +73,10 @@ class MLPProcessor(BaseAdaptiveTransformer[MLPSettings, AxisArray, AxisArray, ML
         # All state is the (possibly trained) model and its optimizer; a gap does not invalidate them.
         pass
 
+    def _hash_message(self, message: AxisArray) -> int:
+        # The model is built for the number of input channels; input is cast to the settings' dtype.
+        return message.data.shape[message.get_axis_idx("ch")]
+
     def _reset_state(self, message: AxisArray) -> None:
         # Create the model
         self._state.model = MLP(

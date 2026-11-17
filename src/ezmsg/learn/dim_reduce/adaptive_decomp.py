@@ -128,10 +128,27 @@ class AdaptiveDecompTransformer(
             off_targ_axes = [_ for _ in (message.dims[:it_ax_ix] + message.dims[it_ax_ix + 1 :]) if _ != axis]
         self._state.axis_groups = iter_axis, targ_axes, off_targ_axes
 
+    def _hash_message(self, message: AxisArray) -> int:
+        # The estimator and template are sized to the shape off the iteration axis, and which dims get
+        # folded depends on the dims. Key, labels, dtype and backend do not matter (sklearn sees numpy).
+        axis = self.settings.axis
+        iter_axis = axis[1:] if axis and axis.startswith("!") else resolve_stream_dim(message, self.STREAMING_DIMS)
+        shape = tuple(n for dim, n in zip(message.dims, message.data.shape) if dim != iter_axis)
+        return hash((iter_axis, tuple(message.dims), shape))
+
+    def _reset_segment(self, message: AxisArray) -> None:
+        # Nothing here tracks the stream position: each output takes its iteration axis from its input.
+        pass
+
     def _reset_state(self, message: AxisArray) -> None:
         """Reset state"""
         self._calculate_axis_groups(message)
         iter_axis, targ_axes, off_targ_axes = self._state.axis_groups
+
+        # Keep a fitted estimator unless it was fitted to another number of features.
+        n_features = math.prod(message.data.shape[message.get_axis_idx(ax)] for ax in targ_axes)
+        if getattr(self._state.estimator, "n_features_in_", n_features) != n_features:
+            self._state.estimator = self._create_estimator()
 
         # Template
         out_dims = [iter_axis] + off_targ_axes
@@ -166,7 +183,13 @@ class AdaptiveDecompTransformer(
         ax_idx = message.get_axis_idx(iter_axis)
         in_dat = message.data
 
-        stamp = {"segment": message.segment, "config_id": self._state.configs.update(message.config_id)}
+        # Key and axes come from the message: a change in them does not reset the template.
+        stamp = {
+            "segment": message.segment,
+            "config_id": self._state.configs.update(message.config_id),
+            "key": message.key,
+            "axes": {**self._state.template.axes, **{ax: message.axes[ax] for ax in (iter_axis, *off_targ_axes)}},
+        }
         if in_dat.shape[ax_idx] == 0:
             return replace(self._state.template, **stamp)
 
@@ -184,10 +207,7 @@ class AdaptiveDecompTransformer(
         d2 = math.prod(in_dat.shape[len(off_targ_axes) + 1 :])
         in_dat = xp.reshape(in_dat, (-1, d2))
 
-        replace_kwargs = {
-            "axes": {**self._state.template.axes, iter_axis: message.axes[iter_axis]},
-            **stamp,
-        }
+        replace_kwargs = dict(stamp)
 
         # Transform data — sklearn needs numpy
         if hasattr(self._state.estimator, "components_"):

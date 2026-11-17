@@ -1,3 +1,4 @@
+import math
 import typing
 from dataclasses import dataclass, field
 from enum import Enum
@@ -29,6 +30,15 @@ def with_fingerprint(axis: AxisArray.CoordinateAxis) -> AxisArray.CoordinateAxis
     """
     axis.fingerprint
     return axis
+
+
+def feature_count(message: AxisArray, stream_dim: str) -> int:
+    """Features per sample: the product of the lengths of every dimension except *stream_dim*.
+
+    What a trained model is sized for, and so the core of the narrowed ``_hash_message``
+    of a class holding one. An empty message (no samples) gives the same count as a full one.
+    """
+    return math.prod(n for dim, n in zip(message.dims, message.data.shape) if dim != stream_dim)
 
 
 class RegressorType(str, Enum):

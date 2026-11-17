@@ -51,6 +51,9 @@ class RNNProcessor(
     TorchProcessorMixin,
     ModelInitMixin,
 ):
+    # The mixin follows the base class in the MRO, so its hash must be named here to take effect.
+    _hash_message = TorchProcessorMixin._hash_message
+
     def _infer_output_sizes(self, model: torch.nn.Module, n_input: int) -> dict[str, int]:
         """Simple inference to get output channel size."""
         dummy_input = torch.zeros(1, 50, n_input, device=self._state.device)

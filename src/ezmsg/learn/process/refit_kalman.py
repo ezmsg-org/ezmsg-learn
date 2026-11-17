@@ -7,6 +7,7 @@
     is stacked via ``xp.stack``.
 """
 
+import math
 import pickle
 from pathlib import Path
 
@@ -244,6 +245,22 @@ class RefitKalmanFilterProcessor(
         if self._state.model.A_state_transition_matrix is not None:
             state_dim = self._state.model.A_state_transition_matrix.shape[0]
 
+        H = self._state.model.H_observation_matrix
+        if message is not None and H is not None and H.shape[0] != math.prod(message.data.shape[1:]):
+            # The observation model cannot be rebuilt for other features without refitting.
+            raise ValueError(
+                f"Kalman model expects {H.shape[0]} measurement features, but got {math.prod(message.data.shape[1:])}"
+            )
+
+        self._reset_trajectory(message, state_dim)
+
+        self._state.buffer_neural = []
+        self._state.buffer_state = []
+        self._state.buffer_cursor_positions = []
+        self._state.buffer_target_positions = []
+        self._state.buffer_hold_flags = []
+
+    def _reset_trajectory(self, message: AxisArray | None, state_dim: int) -> None:
         # Derive xp/dev from message data when available; default to numpy.
         if message is not None:
             xp = get_namespace(message.data)
@@ -254,11 +271,18 @@ class RefitKalmanFilterProcessor(
         self._state.x = xp_create(xp.zeros, (state_dim,), dtype=xp.float64, device=dev)
         self._state.P = xp_create(xp.eye, state_dim, dtype=xp.float64, device=dev)
 
-        self._state.buffer_neural = []
-        self._state.buffer_state = []
-        self._state.buffer_cursor_positions = []
-        self._state.buffer_target_positions = []
-        self._state.buffer_hold_flags = []
+    def _reset_segment(self, message: AxisArray) -> None:
+        # A gap breaks the trajectory, not the model or the logged training pairs: restart x and P only.
+        model = self._state.model
+        self._reset_trajectory(message, model.A_state_transition_matrix.shape[0])
+        if model.is_fitted and not model.steady_state:
+            # Without a steady-state gain the model carries the trajectory's covariance and gain itself.
+            model._compute_gain()
+
+    def _hash_message(self, message: AxisArray) -> int:
+        # Measurement features per sample (the observation model is sized to them; samples run along
+        # axis 0, as _process reads them), and the array backend, because x and P live in it.
+        return hash((math.prod(message.data.shape[1:]), type(message.data).__module__.partition(".")[0]))
 
     def _process(self, message: AxisArray) -> AxisArray:
         """

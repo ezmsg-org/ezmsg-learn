@@ -156,6 +156,9 @@ class AdaptiveLinearRegressorTransformer(
         # cheapest possible hash. Zero rather than -1: -1 is the sentinel
         # `_hash` starts at and that `_request_reset()` writes, so returning it
         # made an explicitly requested reset compare equal and be swallowed.
+        # ponytail: a feature-count change is not caught (sklearn models then raise on predict). A
+        # feature-count hash is impossible while SampleAdaptRegressor trains this on raw (time, ch)
+        # samples and predicts on wider flattened lag windows; revisit if that collection is redesigned.
         return 0
 
     def _reset_state(self, message: AxisArray) -> None:

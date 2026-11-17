@@ -11,7 +11,7 @@ from ezmsg.sigproc.util.segment import ConfigChain
 from ezmsg.util.messages.axisarray import AxisArray, compute_config_id, replace
 
 from .._optional import missing_extra
-from ..util import RegressorType, StaticLinearRegressor, get_regressor
+from ..util import RegressorType, StaticLinearRegressor, feature_count, get_regressor
 
 try:
     from sklearn.linear_model._base import LinearModel
@@ -46,6 +46,9 @@ class LinearRegressorTransformer(
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._init_model()
+
+    def _init_model(self) -> None:
         if self.settings.settings_path is not None:
             # Load model from file
             import pickle
@@ -56,14 +59,26 @@ class LinearRegressorTransformer(
             regressor_klass = get_regressor(RegressorType.STATIC, self.settings.model_type)
             self.state.model = regressor_klass(**self.settings.model_kwargs)
 
+    def _hash_message(self, message: AxisArray) -> int:
+        # The fitted model is sized to the features per sample; labels, key and dtype do not matter to it.
+        return feature_count(message, "time")
+
     def _reset_state(self, message: AxisArray) -> None:
-        # So far, there is nothing to reset.
-        #  .model and .template are initialized in __init__
-        pass
+        # A new feature count: the fit no longer applies, so start again from the settings' model.
+        self._init_model()
+        self.state.template = None
+        expected = getattr(self.state.model, "n_features_in_", None)
+        n_features = feature_count(message, "time")
+        if expected is not None and expected != n_features:
+            raise ValueError(
+                f"Model from {self.settings.settings_path} expects {expected} features, but got {n_features}"
+            )
 
     def partial_fit(self, message: AxisArray) -> None:
         if np.any(np.isnan(message.data)):
             return
+        # Reset on a new feature count, exactly as for a signal message (so the first call keeps this fit).
+        self._prepare_state(message)
 
         X = message.data
         y = message.attrs["trigger"].value.data

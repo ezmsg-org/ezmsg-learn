@@ -219,6 +219,11 @@ class TorchProcessorMixin:
             )
         ]
 
+    def _hash_message(self, message: AxisArray) -> int:
+        # The model is built for the number of input channels. Input is cast to the settings' dtype and
+        # device, so neither the message's dtype nor its backend matters; nor do labels or key.
+        return message.data.shape[message.get_axis_idx("ch")]
+
     def _common_reset_state(self: P, message: AxisArray, model_kwargs: dict) -> None:
         n_input = message.data.shape[message.get_axis_idx("ch")]
 
@@ -244,6 +249,13 @@ class TorchProcessorMixin:
             checkpoint_path=self.settings.checkpoint_path,
             device=device,
         )
+        # A config file or checkpoint may fix the input size (_init_model merges it into model_kwargs):
+        # say so here rather than fail inside the model.
+        if model_kwargs["input_size"] != n_input:
+            raise ValueError(
+                f"Model expects {model_kwargs['input_size']} input features (from its config or checkpoint), "
+                f"but the input has {n_input}"
+            )
 
         self._state.model.eval()
 
@@ -268,6 +280,9 @@ class TorchSimpleProcessor(
     TorchProcessorMixin,
     ModelInitMixin,
 ):
+    # The mixin follows the base class in the MRO, so its hash must be named here to take effect.
+    _hash_message = TorchProcessorMixin._hash_message
+
     def _reset_state(self, message: AxisArray) -> None:
         model_kwargs = dict(self.settings.model_kwargs or {})
         self._common_reset_state(message, model_kwargs)
@@ -305,6 +320,9 @@ class TorchModelProcessor(
     TorchProcessorMixin,
     ModelInitMixin,
 ):
+    # The mixin follows the base class in the MRO, so its hash must be named here to take effect.
+    _hash_message = TorchProcessorMixin._hash_message
+
     def _reset_state(self, message: AxisArray) -> None:
         model_kwargs = dict(self.settings.model_kwargs or {})
         self._common_reset_state(message, model_kwargs)
