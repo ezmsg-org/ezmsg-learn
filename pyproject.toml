@@ -13,7 +13,7 @@ dependencies = [
     # ezmsg-baseproc's default state hash reads. Pinned directly rather than
     # left to the transitive requirement: uv only enables pre-releases for a
     # package named with a pre-release marker in *this* file.
-    "ezmsg>=3.10.0b5",
+    "ezmsg>=3.10.0b7",
     "ezmsg-baseproc>=1.17.0",
     "ezmsg-sigproc>=3.13.0",  # AffineTransform keeps its weights across a segment; config_id chaining
     "numpy",
